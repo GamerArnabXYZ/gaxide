@@ -21,7 +21,7 @@ jobs:
     - name: Install Buildozer Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lldd ccache libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake zip unzip
+        sudo apt-get install -y libsqlite3-dev lld ccache libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake zip unzip
         pip install --user --upgrade buildozer cython virtualenv
 
     - name: Set up Android SDK & NDK Cache
