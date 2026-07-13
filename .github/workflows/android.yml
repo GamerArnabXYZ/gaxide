@@ -1,39 +1,84 @@
-name: Flutter APK Build Cloud Workflow
+name: 🔨 GAX IDE Build & Deploy
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  build-android:
+    name: 🤖 Android Build
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout Code From Repository
-      uses: actions/checkout@v4
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up Java Development Kit (JDK)
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+      - name: ☕ Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    - name: Set up Flutter SDK Environment
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.19.x' # Highly stable tree
-        channel: 'stable'
-        cache: true
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+          cache: true
 
-    - name: Resolve Project Dependencies
-      run: flutter pub get
+      - name: 📦 Get Dependencies
+        run: flutter pub get
 
-    - name: Compile Premium Android APK
-      run: flutter build apk --debug # Debug configuration builds super fast on cloud
+      - name: 🔨 Build Android APKs
+        run: |
+          # Universal APK build aur GAX IDE name standard set karna
+          flutter build apk --release
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/GAX-IDE-Universal.apk
+          
+          # Split APKs for low-end/specific hardware efficiency
+          flutter build apk --release --split-per-abi
+          mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk build/app/outputs/flutter-apk/GAX-IDE-ARMv7.apk
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/GAX-IDE-ARMv8.apk
+          mv build/app/outputs/flutter-apk/app-x86_64-release.apk build/app/outputs/flutter-apk/GAX-IDE-x86_64.apk
 
-    - name: Upload GAX IDE Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: gax-ide-release-apk
-        path: build/app/outputs/flutter-apk/app-debug.apk
+      - name: 📤 Upload APKs to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: build/app/outputs/flutter-apk/GAX-IDE-*.apk
+
+  create-release:
+    name: 🚀 Create GAX Release
+    needs: [build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📥 Download Android APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apks
+          path: apks
+
+      - name: 🏷️ Handle Release Generation
+        run: |
+          # Purane tags clean up taaki conflicts na hon
+          gh release delete latest-build --yes || true
+          git push origin :refs/tags/latest-build || true
+          git tag -d latest-build || true
+          
+          # GAX IDE fresh automation release trigger
+          gh release create latest-build \
+            --title "🚀 GAX IDE Production Build" \
+            --notes "### 📱 GAX IDE v1.0 Release\n- **Android Architecture:** 4 optimized APK variants attached below.\n- **Optimizations:** Universal runtime + separate ABI splits (ARMv7, ARMv8, x86_64) for lower memory usage and lag-free operations on 3GB devices." \
+            --prerelease \
+            --target main \
+            apks/GAX-IDE-*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
