@@ -3,16 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:code_text_field/code_text_field.dart';
-import 'package:highlight/languages/javascript.dart'; // Default language JS rakh rahe hain
+import 'package:highlight/languages/javascript.dart'; // Default editor language JavaScript
 
 void main() {
   runApp(const GaxIdeApp());
 }
 
 class GaxIdeApp extends StatelessWidget {
-  const GaxIdeApp({super.key});
+  const GaxIdeApp({super.key}); // FIXED: Sahi super keyword usage without annotation
 
-  @super
+  @override // FIXED: Standard Dart annotation
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'GAX IDE',
@@ -21,7 +21,7 @@ class GaxIdeApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF6200EE),
-          brightness: Brightness.dark, // Clean dark theme for long coding sessions
+          brightness: Brightness.dark, // Clean UI for high-level mobile coding
         ),
       ),
       home: const IdeHomeScreen(),
@@ -30,36 +30,36 @@ class GaxIdeApp extends StatelessWidget {
 }
 
 class IdeHomeScreen extends StatefulWidget {
-  const IdeHomeScreen({super.key});
+  const IdeHomeScreen({super.key}); // FIXED
 
-  @super
+  @override // FIXED
   State<IdeHomeScreen> createState() => _IdeHomeScreenState();
 }
 
 class _IdeHomeScreenState extends State<IdeHomeScreen> {
-  // Controllers for Configuration Inputs
+  // Config controllers
   final TextEditingController _tokenController = TextEditingController();
   final TextEditingController _repoController = TextEditingController();
   final TextEditingController _pathController = TextEditingController();
   final TextEditingController _commitController = TextEditingController();
 
-  // Code Field Controller (Lines & Syntax Handle)
+  // Code editor controllers
   late CodeController _codeController;
 
   String _statusLog = "System Ready. Open/Write a file and push.";
   bool _isLoading = false;
 
-  @super
+  @override // FIXED
   void initState() {
     super.initState();
-    // Initialize the advanced code editor field
+    // Pre-loaded baseline template script
     _codeController = CodeController(
       text: "// Write your code here...\nfunction helloWorld() {\n  console.log('Hello from GAX IDE');\n}",
       language: javascript,
     );
   }
 
-  @super
+  @override // FIXED
   void dispose() {
     _tokenController.dispose();
     _repoController.dispose();
@@ -69,7 +69,7 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
     super.dispose();
   }
 
-  // --- GIT PUSH VIA GITHUB REST API LOGIC ---
+  // --- GITHUB REST INTEGRATION CONTROLLER ---
   Future<void> _pushToGithub() async {
     final token = _tokenController.text.trim();
     final repo = _repoController.text.trim();
@@ -99,7 +99,6 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
     };
 
     try {
-      // Step 1: Remote file check karte hain taaki agar file pehle se ho toh uska SHA mil sake
       String? sha;
       final getResponse = await http.get(url, headers: headers);
       
@@ -108,24 +107,21 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
         sha = decodedData['sha'];
       }
 
-      // Step 2: Content ko base64 standard mein encode karna (GitHub API requirement)
       final bytes = utf8.encode(codeContent);
       final base64Content = base64.encode(bytes);
 
-      // Step 3: Payload structure set karna
       final Map<String, dynamic> requestBody = {
         "message": commitMsg,
         "content": base64Content,
       };
       if (sha != null) {
-        requestBody["sha"] = sha; // Mandatory parameter if file already exists
+        requestBody["sha"] = sha;
       }
 
       setState(() {
         _statusLog = "⏳ Uploading source payload to GitHub branch...";
       });
 
-      // Step 4: PUT Request launch karna
       final putResponse = await http.put(
         url,
         headers: headers,
@@ -152,7 +148,7 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
     }
   }
 
-  @super
+  @override // FIXED
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -164,7 +160,7 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
         padding: const EdgeInsets.all(12.0),
         child: Column(
           children: [
-            // Configuration Panel
+            // Configuration Inputs Panel
             ExpansionTile(
               title: const Text("GitHub Configuration Tools", style: TextStyle(fontWeight: FontWeight.bold)),
               initiallyExpanded: true,
@@ -203,7 +199,7 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
             
             const SizedBox(height: 10),
             
-            // Code Editor Box
+            // Text Editor Area
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -222,7 +218,7 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
             
             const SizedBox(height: 10),
 
-            // Logger & Action Button
+            // Logs Panel
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(8),
@@ -240,6 +236,7 @@ class _IdeHomeScreenState extends State<IdeHomeScreen> {
             
             const SizedBox(height: 10),
             
+            // Trigger Button
             SizedBox(
               width: double.infinity,
               height: 50,
