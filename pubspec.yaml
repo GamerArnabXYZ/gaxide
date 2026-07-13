@@ -10,19 +10,14 @@ dependencies:
   flutter:
     sdk: flutter
   
-  # Standard and premium iOS-style icons
   cupertino_icons: ^1.0.6
-  
-  # IDE UI ko cool aur modern code looks dene ke liye fonts (Optional, par styling ke liye mast hai)
   google_fonts: ^6.1.0
-  
-  # GitHub REST API hit karne ke liye HTTP client (Sabse zaroori network tool)
   http: ^1.2.0
 
-  # Editor mein smooth code text typing, line numbers aur controllers ke liye
-  code_text_field: ^2.1.0 
+  # FIXED: Is constraint ko any ya ^1.1.0 karne se versioning loop error solve ho jayegi
+  code_text_field: any 
 
-  # Phone ke internal system settings ya basic configs ke liye (Agar settings save karni hon)
+  # File handling ka crash rokne ke liye shared_preferences (just in case requested)
   shared_preferences: ^2.2.1
 
 dev_dependencies:
