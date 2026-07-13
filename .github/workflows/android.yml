@@ -24,11 +24,20 @@ jobs:
         sudo apt-get install -y libsqlite3-dev lld ccache libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake zip unzip openjdk-17-jdk
         pip install --user --upgrade buildozer cython virtualenv
 
-    # ZAROORI STEP: Buildozer ke folders pehle se bana kar system Android SDK ko wahan link karna
-    - name: Link System Android SDK to Buildozer Path
+    # ZAROORI STEP: Naye aur Purane SDK Dono Paths ko Buildozer ke liye configure karna
+    - name: Link System Android SDK and Fix Sdkmanager Path
       run: |
+        # 1. Base folders banao
         mkdir -p /home/runner/.buildozer/android/platform/
+        
+        # 2. Pura SDK system link karo
         ln -s $ANDROID_HOME /home/runner/.buildozer/android/platform/android-sdk
+        
+        # 3. Buildozer jo tools/bin/sdkmanager dhoondh raha hai, uski fake directory banao
+        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/tools/bin
+        
+        # 4. Asli naye sdkmanager ko purane wale path se link kar do
+        ln -s $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
 
     - name: Set up Android SDK & NDK Cache
       uses: actions/cache@v4
