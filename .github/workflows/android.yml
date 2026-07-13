@@ -1,4 +1,4 @@
-name: Android APK Build Workflow
+name: Flutter APK Build Cloud Workflow
 
 on:
   push:
@@ -13,48 +13,27 @@ jobs:
     - name: Checkout Code From Repository
       uses: actions/checkout@v4
 
-    - name: Set up Python Environment
-      uses: actions/setup-python@v5
+    - name: Set up Java Development Kit (JDK)
+      uses: actions/setup-java@v4
       with:
-        python-version: '3.10'
+        distribution: 'temurin'
+        java-version: '17'
 
-    - name: Install Buildozer Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lld ccache libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake zip unzip openjdk-17-jdk
-        pip install --user --upgrade buildozer cython virtualenv
-
-    # ZAROORI STEP: Naye aur Purane SDK Dono Paths ko Buildozer ke liye configure karna
-    - name: Link System Android SDK and Fix Sdkmanager Path
-      run: |
-        # 1. Base folders banao
-        mkdir -p /home/runner/.buildozer/android/platform/
-        
-        # 2. Pura SDK system link karo
-        ln -s $ANDROID_HOME /home/runner/.buildozer/android/platform/android-sdk
-        
-        # 3. Buildozer jo tools/bin/sdkmanager dhoondh raha hai, uski fake directory banao
-        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/tools/bin
-        
-        # 4. Asli naye sdkmanager ko purane wale path se link kar do
-        ln -s $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-
-    - name: Set up Android SDK & NDK Cache
-      uses: actions/cache@v4
+    - name: Set up Flutter SDK Environment
+      uses: subosito/flutter-action@v2
       with:
-        path: |
-          ~/.buildozer
-          .buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        flutter-version: '3.19.x' # Highly stable tree
+        channel: 'stable'
+        cache: true
 
-    - name: Compile Kivy App to Android APK via Buildozer
-      run: |
-        buildozer android debug
-      env:
-        ACCEPT_SDK_LICENSE: "y"
+    - name: Resolve Project Dependencies
+      run: flutter pub get
 
-    - name: Upload Finished Release APK Artifact
+    - name: Compile Premium Android APK
+      run: flutter build apk --debug # Debug configuration builds super fast on cloud
+
+    - name: Upload GAX IDE Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: github-push-app-apk
-        path: bin/*.apk
+        name: gax-ide-release-apk
+        path: build/app/outputs/flutter-apk/app-debug.apk

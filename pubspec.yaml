@@ -1,0 +1,34 @@
+name: gax_ide
+description: A high-performance premium Mobile IDE with GitHub integration.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Standard and premium iOS-style icons
+  cupertino_icons: ^1.0.6
+  
+  # IDE UI ko cool aur modern code looks dene ke liye fonts (Optional, par styling ke liye mast hai)
+  google_fonts: ^6.1.0
+  
+  # GitHub REST API hit karne ke liye HTTP client (Sabse zaroori network tool)
+  http: ^1.2.0
+
+  # Editor mein smooth code text typing, line numbers aur controllers ke liye
+  code_text_field: ^2.1.0 
+
+  # Phone ke internal system settings ya basic configs ke liye (Agar settings save karni hon)
+  shared_preferences: ^2.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
