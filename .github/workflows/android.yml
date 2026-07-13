@@ -1,0 +1,45 @@
+name: Android APK Build Workflow
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code From Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Buildozer Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlite3-dev lldd ccache libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake zip unzip
+        pip install --user --upgrade buildozer cython virtualenv
+
+    - name: Set up Android SDK & NDK Cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.buildozer
+          .buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+
+    - name: Compile Kivy App to Android APK via Buildozer
+      run: |
+        buildozer android debug
+      env:
+        ACCEPT_SDK_LICENSE: "y"
+
+    - name: Upload Finished Release APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: github-push-app-apk
+        path: bin/*.apk
