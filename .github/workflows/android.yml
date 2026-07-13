@@ -18,15 +18,17 @@ jobs:
       with:
         python-version: '3.10'
 
-    # ZAROORI: Yeh step saare Android SDK Tools aur aidl ko configure karega
-    - name: Set up Android SDK
-      uses: android-actions/setup-android@v3
-
     - name: Install Buildozer Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lld ccache libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake zip unzip
+        sudo apt-get install -y libsqlite3-dev lld ccache libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake zip unzip openjdk-17-jdk
         pip install --user --upgrade buildozer cython virtualenv
+
+    # ZAROORI STEP: Buildozer ke folders pehle se bana kar system Android SDK ko wahan link karna
+    - name: Link System Android SDK to Buildozer Path
+      run: |
+        mkdir -p /home/runner/.buildozer/android/platform/
+        ln -s $ANDROID_HOME /home/runner/.buildozer/android/platform/android-sdk
 
     - name: Set up Android SDK & NDK Cache
       uses: actions/cache@v4
