@@ -1,24 +1,31 @@
 name: gax_ide
-description: A high-performance premium Mobile IDE with GitHub integration.
-version: 1.0.0
+description: GAX IDE v2.0 — Ultra-premium mobile-first code editor with GitHub push.
+version: 2.0.0
 publish_to: none
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.4.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  
-  cupertino_icons: ^1.0.6
-  google_fonts: ^6.1.0
-  http: ^1.2.0
 
-  # FIXED: Is constraint ko any ya ^1.1.0 karne se versioning loop error solve ho jayegi
-  code_text_field: any 
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1
+  http: ^1.2.2
 
-  # File handling ka crash rokne ke liye shared_preferences (just in case requested)
-  shared_preferences: ^2.2.1
+  # Syntax highlighting editor + language definitions + color themes
+  code_text_field: ^1.1.0
+  highlight: ^0.7.0
+  flutter_highlight: ^0.7.0
+
+  # Autosave config (PAT / repo / branch / path)
+  shared_preferences: ^2.3.2
+
+  # Local file open/save workflow
+  file_picker: ^8.1.2
+  permission_handler: ^11.3.1
+  path_provider: ^2.1.4
 
 dev_dependencies:
   flutter_test:

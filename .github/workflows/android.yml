@@ -76,7 +76,7 @@ jobs:
           # GAX IDE fresh automation release trigger
           gh release create latest-build \
             --title "🚀 GAX IDE Production Build" \
-            --notes "### 📱 GAX IDE v1.0 Release\n- **Android Architecture:** 4 optimized APK variants attached below.\n- **Optimizations:** Universal runtime + separate ABI splits (ARMv7, ARMv8, x86_64) for lower memory usage and lag-free operations on 3GB devices." \
+            --notes "### 📱 GAX IDE v2.0 Release\n- **Android Architecture:** 4 optimized APK variants attached below.\n- **Optimizations:** Universal runtime + separate ABI splits (ARMv7, ARMv8, x86_64) for lower memory usage and lag-free operations on 3GB devices." \
             --prerelease \
             --target main \
             apks/GAX-IDE-*.apk
