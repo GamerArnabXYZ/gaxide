@@ -4,24 +4,21 @@ class GaxConfig {
   final String token;
   final String repo;
   final String branch;
-  final String path;
-  const GaxConfig({this.token = '', this.repo = '', this.branch = '', this.path = ''});
+  const GaxConfig({this.token = '', this.repo = '', this.branch = ''});
 }
 
-/// Autosaves GitHub config (PAT, repo, branch, path) so Arnab never
-/// re-types them on every app launch.
+/// Autosaves GitHub defaults (PAT, repo, branch) — set once from the
+/// Settings screen, reused every time you push from Editor or File Manager.
 class PrefsService {
   static const _kToken = 'gax_pat_token';
   static const _kRepo = 'gax_repo';
   static const _kBranch = 'gax_branch';
-  static const _kPath = 'gax_path';
 
   Future<void> save(GaxConfig config) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kToken, config.token);
     await prefs.setString(_kRepo, config.repo);
     await prefs.setString(_kBranch, config.branch);
-    await prefs.setString(_kPath, config.path);
   }
 
   Future<GaxConfig> load() async {
@@ -30,7 +27,6 @@ class PrefsService {
       token: prefs.getString(_kToken) ?? '',
       repo: prefs.getString(_kRepo) ?? '',
       branch: prefs.getString(_kBranch) ?? '',
-      path: prefs.getString(_kPath) ?? '',
     );
   }
 }

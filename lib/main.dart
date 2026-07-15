@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart';
+import 'screens/file_manager_screen.dart';
 import 'utils/app_theme.dart';
 
 void main() {
@@ -15,7 +15,7 @@ class GaxIdeApp extends StatelessWidget {
       title: 'GAX IDE',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: const HomeScreen(),
+      home: const FileManagerScreen(),
     );
   }
 }
