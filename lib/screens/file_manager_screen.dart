@@ -3,13 +3,17 @@ import 'package:flutter/material.dart';
 import '../models/file_entry.dart';
 import '../services/file_service.dart';
 import '../widgets/file_list_tile.dart';
-import '../widgets/github_push_dialog.dart';
+import '../widgets/repo_push_dialog.dart';
 import 'editor_screen.dart';
 import 'github_config_screen.dart';
 
-/// Home screen — a full ZArchiver/ES-style file manager: browse, create,
-/// rename, delete, and open files directly into the code editor, or push
-/// any file straight to GitHub without opening it at all.
+enum _SortMode { nameAsc, nameDesc, dateNewest, dateOldest, sizeLargest, sizeSmallest }
+
+/// Home screen — a full ZArchiver/ES-style file manager: browse, search,
+/// sort, multi-select (cut/copy/paste/delete), create files/folders via
+/// FAB, open files in the code editor, and push a whole git-repo folder to
+/// GitHub in one atomic commit. Push only ever appears on folders that
+/// contain a `.git` — plain files/folders never show it.
 class FileManagerScreen extends StatefulWidget {
   const FileManagerScreen({super.key});
 
@@ -21,14 +25,32 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
   final _fileService = FileService();
 
   String _currentPath = FileService.rootStoragePath;
-  List<FileEntry> _entries = [];
+  List<FileEntry> _allEntries = [];
   bool _loading = true;
   bool _permissionDenied = false;
+
+  bool _isSearching = false;
+  String _searchQuery = '';
+  final _searchController = TextEditingController();
+
+  _SortMode _sortMode = _SortMode.nameAsc;
+
+  bool _selectionModeActive = false;
+  final Set<String> _selectedPaths = {};
+
+  List<FileEntry>? _clipboardEntries;
+  bool _clipboardIsCut = false;
 
   @override
   void initState() {
     super.initState();
     _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _bootstrap() async {
@@ -49,29 +71,53 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
       final entries = await _fileService.listDirectory(path);
       setState(() {
         _currentPath = path;
-        _entries = entries;
+        _allEntries = entries;
         _loading = false;
         _permissionDenied = false;
       });
     } catch (e) {
       setState(() => _loading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Cannot open this folder: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('⚠️ Cannot open this folder: $e')));
       }
     }
   }
 
   bool get _atRoot => _currentPath == FileService.rootStoragePath;
+  String get _folderTitle => _atRoot ? 'GAX IDE' : _currentPath.split('/').last;
+
+  List<FileEntry> get _visibleEntries {
+    var list = _allEntries;
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      list = list.where((e) => e.name.toLowerCase().contains(q)).toList();
+    }
+    final sorted = [...list];
+    sorted.sort((a, b) {
+      if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+      switch (_sortMode) {
+        case _SortMode.nameAsc:
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case _SortMode.nameDesc:
+          return b.name.toLowerCase().compareTo(a.name.toLowerCase());
+        case _SortMode.dateNewest:
+          return b.modified.compareTo(a.modified);
+        case _SortMode.dateOldest:
+          return a.modified.compareTo(b.modified);
+        case _SortMode.sizeLargest:
+          return b.sizeBytes.compareTo(a.sizeBytes);
+        case _SortMode.sizeSmallest:
+          return a.sizeBytes.compareTo(b.sizeBytes);
+      }
+    });
+    return sorted;
+  }
 
   void _navigateUp() {
     if (_atRoot) return;
     final segments = _currentPath.split('/')..removeLast();
     _loadDirectory(segments.join('/'));
   }
-
-  String get _folderTitle => _atRoot ? 'GAX IDE' : _currentPath.split('/').last;
 
   // ---------------- Open in Editor ----------------
 
@@ -91,42 +137,35 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
     }
   }
 
-  // ---------------- Create / Rename / Delete ----------------
+  // ---------------- Create ----------------
 
-  Future<void> _showNameDialog({
-    required String title,
-    required String initialValue,
-    required String hint,
-    required String confirmLabel,
-    required Future<void> Function(String value) onConfirm,
-  }) async {
-    final controller = TextEditingController(text: initialValue);
-    final result = await showDialog<bool>(
+  void _showCreateSheet() {
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(hintText: hint, border: const OutlineInputBorder()),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.note_add_outlined),
+              title: const Text('New File'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _createNewFile();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.create_new_folder_outlined),
+              title: const Text('New Folder'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _createNewFolder();
+              },
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(confirmLabel)),
-        ],
       ),
     );
-
-    if (result == true && controller.text.trim().isNotEmpty) {
-      try {
-        await onConfirm(controller.text.trim());
-        await _loadDirectory(_currentPath);
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
-        }
-      }
-    }
   }
 
   Future<void> _createNewFile() async {
@@ -161,27 +200,65 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
         if (mounted) _loadDirectory(_currentPath);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
+    }
+  }
+
+  Future<void> _createNewFolder() async {
+    final controller = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Folder'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'my-folder', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (result == true && controller.text.trim().isNotEmpty) {
+      try {
+        await _fileService.createFolder(_currentPath, controller.text.trim());
+        await _loadDirectory(_currentPath);
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
       }
     }
   }
 
-  void _createNewFolder() => _showNameDialog(
-        title: 'New Folder',
-        initialValue: '',
-        hint: 'my-folder',
-        confirmLabel: 'Create',
-        onConfirm: (name) => _fileService.createFolder(_currentPath, name),
-      );
+  // ---------------- Rename / Delete (single item) ----------------
 
-  void _renameEntry(FileEntry entry) => _showNameDialog(
-        title: 'Rename',
-        initialValue: entry.name,
-        hint: entry.name,
-        confirmLabel: 'Rename',
-        onConfirm: (name) => _fileService.rename(entry.path, entry.isDirectory, name),
-      );
+  Future<void> _renameEntry(FileEntry entry) async {
+    final controller = TextEditingController(text: entry.name);
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Rename')),
+        ],
+      ),
+    );
+    if (result == true && controller.text.trim().isNotEmpty) {
+      try {
+        await _fileService.rename(entry.path, entry.isDirectory, controller.text.trim());
+        await _loadDirectory(_currentPath);
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
+      }
+    }
+  }
 
   Future<void> _deleteEntry(FileEntry entry) async {
     final confirmed = await showDialog<bool>(
@@ -204,21 +281,121 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
         await _fileService.delete(entry.path, entry.isDirectory);
         await _loadDirectory(_currentPath);
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
-        }
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
       }
     }
   }
 
-  // ---------------- Bottom sheet actions ----------------
+  // ---------------- Multi-select: cut / copy / paste / delete ----------------
+
+  void _cutOrCopySelected({required bool isCut}) {
+    final entries = _allEntries.where((e) => _selectedPaths.contains(e.path)).toList();
+    setState(() {
+      _clipboardEntries = entries;
+      _clipboardIsCut = isCut;
+      _selectionModeActive = false;
+      _selectedPaths.clear();
+    });
+  }
+
+  Future<void> _deleteSelected() async {
+    final count = _selectedPaths.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Selected?'),
+        content: Text('$count item(s) will be permanently deleted.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final entries = _allEntries.where((e) => _selectedPaths.contains(e.path)).toList();
+    for (final entry in entries) {
+      try {
+        await _fileService.delete(entry.path, entry.isDirectory);
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ ${entry.name}: $e')));
+      }
+    }
+    setState(() {
+      _selectionModeActive = false;
+      _selectedPaths.clear();
+    });
+    _loadDirectory(_currentPath);
+  }
+
+  Future<void> _pasteClipboard() async {
+    final items = _clipboardEntries;
+    if (items == null || items.isEmpty) return;
+    final isCut = _clipboardIsCut;
+
+    for (final entry in items) {
+      try {
+        if (isCut) {
+          await _fileService.moveEntry(entry.path, _currentPath, entry.isDirectory);
+        } else {
+          await _fileService.copyEntry(entry.path, _currentPath, entry.isDirectory);
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ ${entry.name}: $e')));
+      }
+    }
+    setState(() => _clipboardEntries = null);
+    _loadDirectory(_currentPath);
+  }
+
+  void _cancelClipboard() => setState(() => _clipboardEntries = null);
+
+  // ---------------- Sort sheet ----------------
+
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            const ListTile(title: Text('Sort by', style: TextStyle(fontWeight: FontWeight.bold))),
+            _sortTile('Name (A-Z)', _SortMode.nameAsc),
+            _sortTile('Name (Z-A)', _SortMode.nameDesc),
+            _sortTile('Date (Newest)', _SortMode.dateNewest),
+            _sortTile('Date (Oldest)', _SortMode.dateOldest),
+            _sortTile('Size (Largest)', _SortMode.sizeLargest),
+            _sortTile('Size (Smallest)', _SortMode.sizeSmallest),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sortTile(String label, _SortMode mode) {
+    return ListTile(
+      leading: Icon(
+        _sortMode == mode ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+        size: 20,
+      ),
+      title: Text(label),
+      onTap: () {
+        setState(() => _sortMode = mode);
+        Navigator.pop(context);
+      },
+    );
+  }
+
+  // ---------------- Per-item action sheet ----------------
 
   void _showEntryActionSheet(FileEntry entry) {
     showModalBottomSheet<String>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
@@ -234,12 +411,18 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
                 title: const Text('Open in Editor'),
                 onTap: () => Navigator.pop(ctx, 'open'),
               ),
-            if (!entry.isDirectory)
+            if (entry.isDirectory && entry.isGitRepo)
               ListTile(
-                leading: const Icon(Icons.cloud_upload_rounded),
+                leading: const Icon(Icons.cloud_upload_rounded, color: Color(0xFF16A34A)),
                 title: const Text('Push to GitHub'),
+                subtitle: const Text('Commits every file in this project'),
                 onTap: () => Navigator.pop(ctx, 'push'),
               ),
+            ListTile(
+              leading: const Icon(Icons.check_box_outlined),
+              title: const Text('Select'),
+              onTap: () => Navigator.pop(ctx, 'select'),
+            ),
             ListTile(
               leading: const Icon(Icons.drive_file_rename_outline_rounded),
               title: const Text('Rename'),
@@ -259,10 +442,13 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
           _openInEditor(entry);
           break;
         case 'push':
-          final content = await _fileService.readFileAsString(entry.path);
-          if (mounted) {
-            await showGithubPushDialog(context, content: content, suggestedRepoPath: entry.name);
-          }
+          await showRepoPushDialog(context, folderPath: entry.path);
+          break;
+        case 'select':
+          setState(() {
+            _selectionModeActive = true;
+            _selectedPaths.add(entry.path);
+          });
           break;
         case 'rename':
           _renameEntry(entry);
@@ -274,56 +460,158 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
     });
   }
 
+  // ---------------- Build ----------------
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return PopScope(
-      canPop: _atRoot,
+      canPop: _atRoot && !_selectionModeActive && !_isSearching,
       onPopInvoked: (didPop) {
         if (didPop) return;
+        if (_selectionModeActive) {
+          setState(() {
+            _selectionModeActive = false;
+            _selectedPaths.clear();
+          });
+          return;
+        }
+        if (_isSearching) {
+          setState(() {
+            _isSearching = false;
+            _searchQuery = '';
+            _searchController.clear();
+          });
+          return;
+        }
         _navigateUp();
       },
       child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () {
-              if (!_atRoot) {
-                _navigateUp();
-              } else if (Navigator.canPop(context)) {
-                Navigator.pop(context);
-              }
-            },
+        appBar: _buildAppBar(scheme),
+        body: _buildBody(scheme),
+        bottomNavigationBar: _buildClipboardBar(scheme),
+        floatingActionButton: (_selectionModeActive || _isSearching)
+            ? null
+            : FloatingActionButton(onPressed: _showCreateSheet, child: const Icon(Icons.add_rounded)),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(ColorScheme scheme) {
+    if (_selectionModeActive) {
+      return AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => setState(() {
+            _selectionModeActive = false;
+            _selectedPaths.clear();
+          }),
+        ),
+        title: Text('${_selectedPaths.length} selected'),
+        actions: [
+          IconButton(
+            tooltip: 'Cut',
+            icon: const Icon(Icons.content_cut_rounded),
+            onPressed: _selectedPaths.isEmpty ? null : () => _cutOrCopySelected(isCut: true),
           ),
-          title: Text(_folderTitle),
-          actions: [
-            IconButton(
-              tooltip: 'Home',
-              icon: const Icon(Icons.home_rounded),
-              onPressed: () => _loadDirectory(FileService.rootStoragePath),
-            ),
-            IconButton(
-              tooltip: 'New Folder',
-              icon: const Icon(Icons.create_new_folder_outlined),
-              onPressed: _createNewFolder,
-            ),
-            IconButton(
-              tooltip: 'New File',
-              icon: const Icon(Icons.note_add_outlined),
-              onPressed: _createNewFile,
-            ),
-            IconButton(
-              tooltip: 'GitHub Settings',
-              icon: const Icon(Icons.settings_rounded),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const GithubConfigScreen()),
-              ),
-            ),
+          IconButton(
+            tooltip: 'Copy',
+            icon: const Icon(Icons.copy_rounded),
+            onPressed: _selectedPaths.isEmpty ? null : () => _cutOrCopySelected(isCut: false),
+          ),
+          IconButton(
+            tooltip: 'Delete',
+            icon: const Icon(Icons.delete_outline_rounded),
+            onPressed: _selectedPaths.isEmpty ? null : _deleteSelected,
+          ),
+        ],
+      );
+    }
+
+    if (_isSearching) {
+      return AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => setState(() {
+            _isSearching = false;
+            _searchQuery = '';
+            _searchController.clear();
+          }),
+        ),
+        title: TextField(
+          controller: _searchController,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Search this folder...', border: InputBorder.none),
+          onChanged: (v) => setState(() => _searchQuery = v),
+        ),
+      );
+    }
+
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_rounded),
+        onPressed: () {
+          if (!_atRoot) {
+            _navigateUp();
+          } else if (Navigator.canPop(context)) {
+            Navigator.pop(context);
+          }
+        },
+      ),
+      title: Text(_folderTitle),
+      actions: [
+        IconButton(
+          tooltip: 'Search',
+          icon: const Icon(Icons.search_rounded),
+          onPressed: () => setState(() => _isSearching = true),
+        ),
+        IconButton(
+          tooltip: 'Home',
+          icon: const Icon(Icons.home_rounded),
+          onPressed: () => _loadDirectory(FileService.rootStoragePath),
+        ),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert_rounded),
+          onSelected: (value) {
+            switch (value) {
+              case 'sort':
+                _showSortSheet();
+                break;
+              case 'select':
+                setState(() => _selectionModeActive = true);
+                break;
+              case 'settings':
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const GithubConfigScreen()));
+                break;
+            }
+          },
+          itemBuilder: (ctx) => const [
+            PopupMenuItem(value: 'sort', child: Text('Sort by...')),
+            PopupMenuItem(value: 'select', child: Text('Select Files')),
+            PopupMenuItem(value: 'settings', child: Text('GitHub Settings')),
           ],
         ),
-        body: _buildBody(scheme),
+      ],
+    );
+  }
+
+  Widget? _buildClipboardBar(ColorScheme scheme) {
+    if (_clipboardEntries == null || _clipboardEntries!.isEmpty) return null;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: scheme.surfaceContainerHigh,
+        child: Row(
+          children: [
+            Icon(_clipboardIsCut ? Icons.content_cut_rounded : Icons.copy_rounded, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text('${_clipboardEntries!.length} item(s) ready to paste')),
+            TextButton(onPressed: _cancelClipboard, child: const Text('Cancel')),
+            const SizedBox(width: 4),
+            FilledButton(onPressed: _pasteClipboard, child: const Text('Paste Here')),
+          ],
+        ),
       ),
     );
   }
@@ -361,9 +649,14 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_entries.isEmpty) {
+    final visible = _visibleEntries;
+
+    if (visible.isEmpty) {
       return Center(
-        child: Text('Empty folder', style: TextStyle(color: scheme.onSurfaceVariant)),
+        child: Text(
+          _searchQuery.isNotEmpty ? 'No matches' : 'Empty folder',
+          style: TextStyle(color: scheme.onSurfaceVariant),
+        ),
       );
     }
 
@@ -371,13 +664,33 @@ class _FileManagerScreenState extends State<FileManagerScreen> {
       onRefresh: () => _loadDirectory(_currentPath),
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        itemCount: _entries.length,
+        itemCount: visible.length,
         itemBuilder: (context, index) {
-          final entry = _entries[index];
+          final entry = visible[index];
+          final selected = _selectedPaths.contains(entry.path);
           return FileListTile(
             entry: entry,
-            onTap: () => entry.isDirectory ? _loadDirectory(entry.path) : _openInEditor(entry),
-            onLongPress: () => _showEntryActionSheet(entry),
+            isSelectionMode: _selectionModeActive,
+            isSelected: selected,
+            onTap: () {
+              if (_selectionModeActive) {
+                setState(() {
+                  if (selected) {
+                    _selectedPaths.remove(entry.path);
+                  } else {
+                    _selectedPaths.add(entry.path);
+                  }
+                });
+              } else if (entry.isDirectory) {
+                _loadDirectory(entry.path);
+              } else {
+                _openInEditor(entry);
+              }
+            },
+            onLongPress: () {
+              if (_selectionModeActive) return;
+              _showEntryActionSheet(entry);
+            },
           );
         },
       ),

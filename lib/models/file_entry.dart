@@ -6,12 +6,17 @@ class FileEntry {
   final int sizeBytes;
   final DateTime modified;
 
+  /// True only for directories that contain a `.git` folder — these are
+  /// the only folders that ever show a "Push to GitHub" action.
+  final bool isGitRepo;
+
   const FileEntry({
     required this.name,
     required this.path,
     required this.isDirectory,
     required this.sizeBytes,
     required this.modified,
+    this.isGitRepo = false,
   });
 
   String get extension {

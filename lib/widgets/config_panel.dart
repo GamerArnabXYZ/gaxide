@@ -1,21 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// GitHub defaults form — lives inside the dedicated Settings screen now.
+/// GitHub PAT input — the only global setting left. Repo & branch are
+/// auto-detected per-project from each folder's own `.git` metadata.
 /// Soft "glass card" look (gradient + border + shadow, no BackdropFilter)
 /// so it stays lag-free on low-end hardware.
 class ConfigPanel extends StatelessWidget {
   final TextEditingController tokenController;
-  final TextEditingController repoController;
-  final TextEditingController branchController;
-  final ValueChanged<String>? onAnyFieldChanged;
+  final ValueChanged<String>? onChanged;
 
-  const ConfigPanel({
-    super.key,
-    required this.tokenController,
-    required this.repoController,
-    required this.branchController,
-    this.onAnyFieldChanged,
-  });
+  const ConfigPanel({super.key, required this.tokenController, this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -44,42 +37,24 @@ class ConfigPanel extends StatelessWidget {
             children: [
               Icon(Icons.hub_rounded, color: scheme.primary, size: 20),
               const SizedBox(width: 8),
-              const Text('GitHub Configuration', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              const Text('GitHub Access', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             ],
           ),
           const SizedBox(height: 16),
           TextField(
             controller: tokenController,
             obscureText: true,
-            onChanged: onAnyFieldChanged,
+            onChanged: onChanged,
             decoration: const InputDecoration(
               labelText: 'Personal Access Token (PAT)',
               prefixIcon: Icon(Icons.key_rounded, size: 20),
             ),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: repoController,
-            onChanged: onAnyFieldChanged,
-            decoration: const InputDecoration(
-              labelText: 'Repository',
-              hintText: 'username/repo-name',
-              prefixIcon: Icon(Icons.folder_special_rounded, size: 20),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: branchController,
-            onChanged: onAnyFieldChanged,
-            decoration: const InputDecoration(
-              labelText: 'Default Branch',
-              hintText: 'main',
-              prefixIcon: Icon(Icons.alt_route_rounded, size: 20),
-            ),
-          ),
-          const SizedBox(height: 10),
           Text(
-            'Used as defaults whenever you push a file from the Editor or File Manager.',
+            'That\'s it — repo name & branch are auto-detected from every '
+            'project\'s own .git folder. Just clone/init your repos normally '
+            'and GAX IDE will recognize them automatically.',
             style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
           ),
         ],

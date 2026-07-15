@@ -3,7 +3,7 @@ import '../services/prefs_service.dart';
 import '../widgets/config_panel.dart';
 
 /// Dedicated Settings screen — reached via the gear icon on the File Manager.
-/// Holds the GitHub PAT / Repo / Branch defaults, autosaved as you type.
+/// Just the GitHub PAT now; repo/branch are auto-detected per project.
 class GithubConfigScreen extends StatefulWidget {
   const GithubConfigScreen({super.key});
 
@@ -13,8 +13,6 @@ class GithubConfigScreen extends StatefulWidget {
 
 class _GithubConfigScreenState extends State<GithubConfigScreen> {
   final _tokenController = TextEditingController();
-  final _repoController = TextEditingController();
-  final _branchController = TextEditingController();
   final _prefsService = PrefsService();
   bool _loading = true;
 
@@ -28,24 +26,16 @@ class _GithubConfigScreenState extends State<GithubConfigScreen> {
     final config = await _prefsService.load();
     if (!mounted) return;
     _tokenController.text = config.token;
-    _repoController.text = config.repo;
-    _branchController.text = config.branch;
     setState(() => _loading = false);
   }
 
   Future<void> _persist([String? _]) async {
-    await _prefsService.save(GaxConfig(
-      token: _tokenController.text.trim(),
-      repo: _repoController.text.trim(),
-      branch: _branchController.text.trim(),
-    ));
+    await _prefsService.save(GaxConfig(token: _tokenController.text.trim()));
   }
 
   @override
   void dispose() {
     _tokenController.dispose();
-    _repoController.dispose();
-    _branchController.dispose();
     super.dispose();
   }
 
@@ -58,12 +48,7 @@ class _GithubConfigScreenState extends State<GithubConfigScreen> {
           : SafeArea(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(14),
-                child: ConfigPanel(
-                  tokenController: _tokenController,
-                  repoController: _repoController,
-                  branchController: _branchController,
-                  onAnyFieldChanged: _persist,
-                ),
+                child: ConfigPanel(tokenController: _tokenController, onChanged: _persist),
               ),
             ),
     );

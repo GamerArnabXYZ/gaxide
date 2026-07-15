@@ -45,7 +45,7 @@ IconData _iconFor(FileEntry entry) {
 }
 
 Color _iconColorFor(FileEntry entry, ColorScheme scheme) {
-  if (entry.isDirectory) return const Color(0xFFFFC24B);
+  if (entry.isDirectory) return entry.isGitRepo ? const Color(0xFFFF7B54) : const Color(0xFFFFC24B);
   switch (entry.extension) {
     case 'js':
     case 'jsx':
@@ -68,28 +68,35 @@ Color _iconColorFor(FileEntry entry, ColorScheme scheme) {
   }
 }
 
-/// Single row in the File Manager list — folder or file, with size/date subtitle.
+/// Single row in the File Manager list — folder or file, with size/date
+/// subtitle, a small git badge on repo folders, and optional selection
+/// checkbox for multi-select mode.
 class FileListTile extends StatelessWidget {
   final FileEntry entry;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool isSelectionMode;
+  final bool isSelected;
 
   const FileListTile({
     super.key,
     required this.entry,
     required this.onTap,
     required this.onLongPress,
+    this.isSelectionMode = false,
+    this.isSelected = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final subtitle = entry.isDirectory
-        ? 'Folder'
+        ? (entry.isGitRepo ? 'Git Project' : 'Folder')
         : '${entry.readableSize} • ${entry.modified.day}/${entry.modified.month}/${entry.modified.year}';
 
     return Material(
-      color: Colors.transparent,
+      color: isSelected ? scheme.primary.withOpacity(0.12) : Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
@@ -98,15 +105,38 @@ class FileListTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: Row(
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(_iconFor(entry), color: _iconColorFor(entry, scheme), size: 22),
+              if (isSelectionMode) ...[
+                Checkbox(value: isSelected, onChanged: (_) => onTap()),
+                const SizedBox(width: 4),
+              ],
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(_iconFor(entry), color: _iconColorFor(entry, scheme), size: 22),
+                  ),
+                  if (entry.isGitRepo)
+                    Positioned(
+                      right: -3,
+                      bottom: -3,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerLow,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: scheme.surfaceContainerLow, width: 1.5),
+                        ),
+                        child: const Icon(Icons.cloud_upload_rounded, size: 12, color: Color(0xFF16A34A)),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -127,9 +157,9 @@ class FileListTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (entry.isDirectory)
+              if (!isSelectionMode && entry.isDirectory)
                 Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant.withOpacity(0.5)),
-              if (!entry.isDirectory)
+              if (!isSelectionMode && !entry.isDirectory)
                 IconButton(
                   icon: Icon(Icons.more_vert_rounded, color: scheme.onSurfaceVariant.withOpacity(0.7), size: 20),
                   onPressed: onLongPress,

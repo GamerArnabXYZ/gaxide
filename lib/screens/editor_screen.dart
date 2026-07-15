@@ -3,12 +3,16 @@ import 'package:code_text_field/code_text_field.dart';
 
 import '../models/editor_language.dart';
 import '../services/file_service.dart';
+import '../services/git_service.dart';
 import '../widgets/code_editor.dart';
 import '../widgets/status_log_panel.dart';
-import '../widgets/github_push_dialog.dart';
+import '../widgets/repo_push_dialog.dart';
 
 /// Code editor for a single file already on disk — reached by tapping a
-/// file in the File Manager (home screen).
+/// file in the File Manager (home screen). Push is repo-level, not per
+/// file: if this file lives inside a git-repo folder, a "Push Repo" action
+/// appears that commits every file in that project — same as long-pressing
+/// the project folder itself in the File Manager.
 class EditorScreen extends StatefulWidget {
   final String filePath;
   final String initialContent;
@@ -21,12 +25,14 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen> {
   final _fileService = FileService();
+  final _gitService = GitService();
 
   late CodeController _codeController;
   late EditorLanguage _currentLanguage;
   String _statusLog = 'Ready.';
   bool _isDirty = false;
   bool _isSaving = false;
+  String? _gitRoot;
 
   String get _fileName => widget.filePath.split('/').last;
 
@@ -36,6 +42,13 @@ class _EditorScreenState extends State<EditorScreen> {
     _currentLanguage = EditorLanguageX.fromExtension(_fileName);
     _codeController = CodeController(text: widget.initialContent, language: _currentLanguage.mode);
     _codeController.addListener(_markDirty);
+    _detectGitRoot();
+  }
+
+  Future<void> _detectGitRoot() async {
+    final parentDir = widget.filePath.substring(0, widget.filePath.lastIndexOf('/'));
+    final root = await _gitService.findNearestGitRoot(parentDir, stopAtPath: FileService.rootStoragePath);
+    if (mounted) setState(() => _gitRoot = root);
   }
 
   void _markDirty() {
@@ -80,8 +93,11 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
-  Future<void> _push() async {
-    await showGithubPushDialog(context, content: _codeController.text, suggestedRepoPath: _fileName);
+  Future<void> _pushRepo() async {
+    if (_gitRoot == null) return;
+    // Save first so the pushed commit includes the latest edits.
+    if (_isDirty) await _save();
+    await showRepoPushDialog(context, folderPath: _gitRoot!);
   }
 
   Future<bool> _confirmDiscardIfDirty() async {
@@ -130,11 +146,12 @@ class _EditorScreenState extends State<EditorScreen> {
                   : const Icon(Icons.save_rounded),
               onPressed: _isSaving ? null : _save,
             ),
-            IconButton(
-              tooltip: 'Push to GitHub',
-              icon: const Icon(Icons.cloud_upload_rounded),
-              onPressed: _push,
-            ),
+            if (_gitRoot != null)
+              IconButton(
+                tooltip: 'Push Repo to GitHub',
+                icon: const Icon(Icons.cloud_upload_rounded, color: Color(0xFF16A34A)),
+                onPressed: _pushRepo,
+              ),
           ],
         ),
         body: SafeArea(
