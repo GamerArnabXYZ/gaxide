@@ -255,6 +255,15 @@ class FileBrowserViewState extends State<FileBrowserView> {
                 _createNewFolder();
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.cloud_upload_rounded, color: Color(0xFF16A34A)),
+              title: const Text('Push This Folder to GitHub'),
+              subtitle: Text(_folderTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await showRepoPushDialog(context, folderPath: _currentPath);
+              },
+            ),
           ],
         ),
       ),
@@ -476,11 +485,11 @@ class FileBrowserViewState extends State<FileBrowserView> {
                 title: const Text('Open in Editor'),
                 onTap: () => Navigator.pop(ctx, 'open'),
               ),
-            if (entry.isDirectory && entry.isGitRepo)
+            if (entry.isDirectory)
               ListTile(
                 leading: const Icon(Icons.cloud_upload_rounded, color: Color(0xFF16A34A)),
                 title: const Text('Push to GitHub'),
-                subtitle: const Text('Commits every file in this project'),
+                subtitle: const Text('Commits every file in this folder'),
                 onTap: () => Navigator.pop(ctx, 'push'),
               ),
             ListTile(

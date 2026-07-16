@@ -4,9 +4,11 @@ import '../services/git_service.dart';
 import '../services/github_service.dart';
 import '../services/prefs_service.dart';
 
-/// Push dialog for a whole git-repo folder — owner/repo auto-detected from
-/// `.git/config`, branch from `.git/HEAD`. One tap = one atomic commit of
-/// every trackable file in that project.
+/// Push dialog for ANY folder — not just detected git repos. Whatever can
+/// be auto-detected is auto-filled (repo/branch from .git if present, push
+/// path from the folder's position inside that repo, username from the
+/// token's own GitHub account); everything stays editable so it also works
+/// for plain folders with no .git at all.
 Future<void> showRepoPushDialog(BuildContext context, {required String folderPath}) async {
   final prefsService = PrefsService();
   final gitService = GitService();
@@ -23,20 +25,34 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
     return;
   }
 
-  final repoInfo = await gitService.readRepoInfo(folderPath);
+  // ---- Auto-fetch whatever is possible ----
+  final gitRoot = await gitService.findNearestGitRoot(folderPath, stopAtPath: FileService.rootStoragePath);
+  String autoRepo = '';
+  String autoBranch = 'main';
+  String autoPushPath = '';
+  if (gitRoot != null) {
+    final repoInfo = await gitService.readRepoInfo(gitRoot);
+    if (repoInfo != null) {
+      autoRepo = repoInfo.fullName;
+      autoBranch = repoInfo.branch;
+    }
+    if (folderPath != gitRoot && folderPath.startsWith('$gitRoot/')) {
+      autoPushPath = folderPath.substring(gitRoot.length + 1);
+    }
+  }
+  final autoUsername = await githubService.fetchAuthenticatedUsername(config.token);
+
   if (!context.mounted) return;
 
-  if (repoInfo == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('❌ Could not read remote "origin" from .git/config.')),
-    );
-    return;
-  }
+  final pathController = TextEditingController(text: autoPushPath);
+  final repoController = TextEditingController(text: autoRepo);
+  final branchController = TextEditingController(text: autoBranch);
+  final usernameController = TextEditingController(text: autoUsername ?? 'GAX IDE');
+  final commitController = TextEditingController(text: 'Updated/Modified by GAX IDE');
 
-  final branchController = TextEditingController(text: repoInfo.branch);
-  final commitController = TextEditingController();
   bool isPushing = false;
   String progressText = '';
+  String? errorText;
 
   await showDialog(
     context: context,
@@ -44,36 +60,53 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setDialogState) => AlertDialog(
         title: const Text('Push to GitHub'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.hub_rounded, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(repoInfo.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: pathController,
+                enabled: !isPushing,
+                decoration: const InputDecoration(
+                  labelText: 'Push Path (in repo)',
+                  hintText: 'blank = repo root',
                 ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: repoController,
+                enabled: !isPushing,
+                decoration: const InputDecoration(labelText: 'Repo', hintText: 'username/repo-name'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: branchController,
+                enabled: !isPushing,
+                decoration: const InputDecoration(labelText: 'Branch', hintText: 'main'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: usernameController,
+                enabled: !isPushing,
+                decoration: const InputDecoration(labelText: 'Username', hintText: 'GAX IDE'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: commitController,
+                enabled: !isPushing,
+                decoration: const InputDecoration(labelText: 'Commit Message'),
+              ),
+              if (errorText != null) ...[
+                const SizedBox(height: 10),
+                Text(errorText!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
               ],
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: branchController,
-              enabled: !isPushing,
-              decoration: const InputDecoration(labelText: 'Branch'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: commitController,
-              enabled: !isPushing,
-              decoration: const InputDecoration(labelText: 'Commit Message (optional)'),
-            ),
-            if (isPushing) ...[
-              const SizedBox(height: 14),
-              Text(progressText, style: const TextStyle(fontSize: 12)),
+              if (isPushing) ...[
+                const SizedBox(height: 14),
+                Text(progressText, style: const TextStyle(fontSize: 12)),
+              ],
             ],
-          ],
+          ),
         ),
         actions: [
           TextButton(
@@ -88,22 +121,40 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
             onPressed: isPushing
                 ? null
                 : () async {
+                    final repoParts = repoController.text.trim().split('/');
+                    if (repoParts.length != 2 || repoParts[0].isEmpty || repoParts[1].isEmpty) {
+                      setDialogState(() => errorText = 'Repo must look like username/repo-name');
+                      return;
+                    }
+                    if (branchController.text.trim().isEmpty) {
+                      setDialogState(() => errorText = 'Branch is required');
+                      return;
+                    }
+
                     setDialogState(() {
+                      errorText = null;
                       isPushing = true;
                       progressText = 'Collecting files...';
                     });
 
                     final files = await fileService.collectFilesForPush(folderPath);
-                    setDialogState(() => progressText = 'Uploading ${files.length} files...');
+                    final pushPrefix = pathController.text.trim();
+                    final prefixedFiles = files
+                        .map((e) => MapEntry(pushPrefix.isEmpty ? e.key : '$pushPrefix/${e.key}', e.value))
+                        .toList();
+
+                    setDialogState(() => progressText = 'Uploading ${prefixedFiles.length} files...');
 
                     final result = await githubService.pushFolder(
                       token: config.token,
-                      owner: repoInfo.owner,
-                      repo: repoInfo.repo,
+                      owner: repoParts[0],
+                      repo: repoParts[1],
                       branch: branchController.text.trim(),
-                      files: files,
-                      commitMessage:
-                          commitController.text.trim().isEmpty ? 'Update via GAX IDE' : commitController.text.trim(),
+                      files: prefixedFiles,
+                      commitMessage: commitController.text.trim().isEmpty
+                          ? 'Updated/Modified by GAX IDE'
+                          : commitController.text.trim(),
+                      authorName: usernameController.text.trim().isEmpty ? 'GAX IDE' : usernameController.text.trim(),
                     );
 
                     if (ctx.mounted) Navigator.pop(ctx);

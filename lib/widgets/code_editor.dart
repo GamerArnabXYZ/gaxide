@@ -65,6 +65,7 @@ class CodeEditorView extends StatelessWidget {
                 data: CodeThemeData(styles: atomOneDarkTheme),
                 child: CodeField(
                   controller: controller,
+                  expands: true,
                   textStyle: GoogleFonts.firaCode(fontSize: 14, height: 1.5),
                   background: Colors.transparent,
                   lineNumberStyle: LineNumberStyle(

@@ -19,6 +19,7 @@ class GithubService {
     required String branch,
     required List<MapEntry<String, List<int>>> files,
     required String commitMessage,
+    String authorName = 'GAX IDE',
   }) async {
     final headers = {
       'Authorization': 'token $token',
@@ -80,6 +81,8 @@ class GithubService {
           'message': commitMessage,
           'tree': newTreeSha,
           'parents': [latestCommitSha],
+          'author': {'name': authorName, 'email': _placeholderEmail(authorName)},
+          'committer': {'name': authorName, 'email': _placeholderEmail(authorName)},
         }),
       );
       if (commitCreateRes.statusCode != 201) {
@@ -99,6 +102,33 @@ class GithubService {
       return GithubPushResult(false, '❌ Failed updating branch ref [${updateRefRes.statusCode}]');
     } catch (e) {
       return GithubPushResult(false, '❌ Network Exception: $e');
+    }
+  }
+
+  /// Best-effort commit-author email so the "author" object is valid even
+  /// though only a display name is collected from the user.
+  String _placeholderEmail(String name) {
+    final slug = name.trim().isEmpty
+        ? 'gax-ide'
+        : name.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+    return '$slug@users.noreply.github.com';
+  }
+
+  /// Auto-fetches the PAT's own GitHub login, used to pre-fill the push
+  /// dialog's "Username" field whenever possible.
+  Future<String?> fetchAuthenticatedUsername(String token) async {
+    try {
+      final res = await http.get(
+        Uri.parse('https://api.github.com/user'),
+        headers: {'Authorization': 'token $token', 'Accept': 'application/vnd.github.v3+json'},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        return data['login'] as String?;
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 }
