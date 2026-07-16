@@ -13,7 +13,7 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
   final fileService = FileService();
   final githubService = GithubService();
 
-  final config = await prefsService.load();
+  final config = await prefsService.loadConfig();
   if (!context.mounted) return;
 
   if (config.token.isEmpty) {
