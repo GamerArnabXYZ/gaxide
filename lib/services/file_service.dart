@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/file_entry.dart';
 
 /// Direct raw-filesystem access (no SAF/file_picker cache-copy limitations).
@@ -38,16 +39,39 @@ class FileService {
 
   Future<void> openAppSettingsPage() => openAppSettings();
 
+  /// Best-effort SD-card / secondary-storage detection. Android exposes no
+  /// clean "list storage volumes" API without native code, so this uses the
+  /// well-known heuristic: getExternalStorageDirectories() returns one
+  /// per-volume app-specific folder (…/Android/data/<pkg>/files); stripping
+  /// that suffix off any volume beyond the first (internal) one gives the
+  /// SD card's root, e.g. /storage/1234-5678.
+  Future<String?> detectSecondaryStoragePath() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final dirs = await getExternalStorageDirectories();
+      if (dirs == null || dirs.length < 2) return null;
+      for (final dir in dirs.skip(1)) {
+        final idx = dir.path.indexOf('/Android/data');
+        if (idx == -1) continue;
+        final root = dir.path.substring(0, idx);
+        if (await Directory(root).exists()) return root;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Lists a directory: folders first, then files, both alphabetical.
   /// Silently skips hidden entries and anything unreadable (e.g. system-locked).
   /// Each directory is also checked for a `.git` folder so the UI can badge it.
-  Future<List<FileEntry>> listDirectory(String dirPath) async {
+  Future<List<FileEntry>> listDirectory(String dirPath, {bool showHidden = false}) async {
     final dir = Directory(dirPath);
     final entries = <FileEntry>[];
 
     await for (final entity in dir.list(followLinks: false)) {
       final name = entity.path.split('/').last;
-      if (name.startsWith('.')) continue;
+      if (!showHidden && name.startsWith('.')) continue;
       try {
         final stat = await entity.stat();
         final isDir = entity is Directory;

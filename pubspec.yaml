@@ -19,11 +19,12 @@ dependencies:
   highlight: ^0.7.0
   flutter_highlight: ^0.7.0
 
-  # Autosave GitHub defaults (PAT / repo / branch)
+  # Autosave GitHub token, storage tab paths, and file manager prefs
   shared_preferences: ^2.3.2
 
   # Raw filesystem access for the built-in File Manager
   permission_handler: ^11.3.1
+  path_provider: ^2.1.4
 
 dev_dependencies:
   flutter_test:
