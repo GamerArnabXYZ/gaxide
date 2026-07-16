@@ -29,15 +29,14 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
   final gitRoot = await gitService.findNearestGitRoot(folderPath, stopAtPath: FileService.rootStoragePath);
   String autoRepo = '';
   String autoBranch = 'main';
-  String autoPushPath = '';
+  // Push Path always starts as this folder's own name — the natural
+  // destination for "push THIS folder" regardless of git detection.
+  final autoPushPath = folderPath.split('/').last;
   if (gitRoot != null) {
     final repoInfo = await gitService.readRepoInfo(gitRoot);
     if (repoInfo != null) {
       autoRepo = repoInfo.fullName;
       autoBranch = repoInfo.branch;
-    }
-    if (folderPath != gitRoot && folderPath.startsWith('$gitRoot/')) {
-      autoPushPath = folderPath.substring(gitRoot.length + 1);
     }
   }
   final autoUsername = await githubService.fetchAuthenticatedUsername(config.token);
@@ -48,7 +47,8 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
   final repoController = TextEditingController(text: autoRepo);
   final branchController = TextEditingController(text: autoBranch);
   final usernameController = TextEditingController(text: autoUsername ?? 'GAX IDE');
-  final commitController = TextEditingController(text: 'Updated/Modified by GAX IDE');
+  final commitController = TextEditingController();
+  const stickyCommitTag = 'Updated/Modified by GAX IDE';
 
   bool isPushing = false;
   String progressText = '';
@@ -95,7 +95,15 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
               TextField(
                 controller: commitController,
                 enabled: !isPushing,
-                decoration: const InputDecoration(labelText: 'Commit Message'),
+                decoration: const InputDecoration(
+                  labelText: 'Commit Message (optional)',
+                  hintText: 'e.g. fixed login bug',
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '"($stickyCommitTag)" is always added at the end.',
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
               ),
               if (errorText != null) ...[
                 const SizedBox(height: 10),
@@ -145,15 +153,17 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
 
                     setDialogState(() => progressText = 'Uploading ${prefixedFiles.length} files...');
 
+                    final userCommitMsg = commitController.text.trim();
+                    final finalCommitMessage =
+                        userCommitMsg.isEmpty ? stickyCommitTag : '$userCommitMsg ($stickyCommitTag)';
+
                     final result = await githubService.pushFolder(
                       token: config.token,
                       owner: repoParts[0],
                       repo: repoParts[1],
                       branch: branchController.text.trim(),
                       files: prefixedFiles,
-                      commitMessage: commitController.text.trim().isEmpty
-                          ? 'Updated/Modified by GAX IDE'
-                          : commitController.text.trim(),
+                      commitMessage: finalCommitMessage,
                       authorName: usernameController.text.trim().isEmpty ? 'GAX IDE' : usernameController.text.trim(),
                     );
 

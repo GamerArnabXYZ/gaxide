@@ -4,7 +4,6 @@ import 'package:code_text_field/code_text_field.dart';
 import '../models/editor_language.dart';
 import '../services/file_service.dart';
 import '../widgets/code_editor.dart';
-import '../widgets/status_log_panel.dart';
 
 /// Code editor for a single file already on disk — reached by tapping a
 /// file in the File Manager (home screen). Push lives at the folder level
@@ -25,7 +24,6 @@ class _EditorScreenState extends State<EditorScreen> {
 
   late CodeController _codeController;
   late EditorLanguage _currentLanguage;
-  String _statusLog = 'Ready.';
   bool _isDirty = false;
   bool _isSaving = false;
 
@@ -62,22 +60,21 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<void> _save() async {
-    setState(() {
-      _isSaving = true;
-      _statusLog = '⏳ Saving...';
-    });
+    setState(() => _isSaving = true);
     try {
       await _fileService.saveToPath(widget.filePath, _codeController.text);
+      if (!mounted) return;
       setState(() {
         _isDirty = false;
         _isSaving = false;
-        _statusLog = '💾 Saved: $_fileName';
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('💾 Saved: $_fileName'), duration: const Duration(seconds: 2)),
+      );
     } catch (e) {
-      setState(() {
-        _isSaving = false;
-        _statusLog = '❌ Save failed: $e';
-      });
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Save failed: $e')));
     }
   }
 
@@ -132,18 +129,10 @@ class _EditorScreenState extends State<EditorScreen> {
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                Expanded(
-                  child: CodeEditorView(
-                    controller: _codeController,
-                    currentLanguage: _currentLanguage,
-                    onLanguageChanged: _onLanguageChanged,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                StatusLogPanel(status: _statusLog),
-              ],
+            child: CodeEditorView(
+              controller: _codeController,
+              currentLanguage: _currentLanguage,
+              onLanguageChanged: _onLanguageChanged,
             ),
           ),
         ),

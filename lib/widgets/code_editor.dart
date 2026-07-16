@@ -69,7 +69,12 @@ class CodeEditorView extends StatelessWidget {
                   textStyle: GoogleFonts.firaCode(fontSize: 14, height: 1.5),
                   background: Colors.transparent,
                   lineNumberStyle: LineNumberStyle(
-                    textStyle: TextStyle(color: scheme.onSurfaceVariant.withOpacity(0.5), fontSize: 13),
+                    width: 44,
+                    margin: 12,
+                    textStyle: GoogleFonts.firaCode(
+                      color: scheme.onSurfaceVariant.withOpacity(0.5),
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ),
