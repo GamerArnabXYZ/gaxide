@@ -3,16 +3,23 @@ import 'package:code_text_field/code_text_field.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import '../models/editor_language.dart';
 
-/// Editor surface: language dropdown header + syntax-highlighted CodeField.
+/// Editor surface: language dropdown header + syntax-highlighted code area.
 ///
-/// IMPORTANT: uses the built-in 'monospace' font family (not a downloaded
-/// Google Font) for both the code and the line-number gutter. A downloaded
-/// font loads asynchronously — the gutter's width gets measured against a
-/// fallback font first, then the glyphs swap once the real font arrives,
-/// which is what caused multi-digit line numbers to wrap onto extra rows.
-/// 'monospace' is bundled with the OS, so it's available instantly and the
-/// measurement always matches what's rendered.
-class CodeEditorView extends StatelessWidget {
+/// Line numbers are NOT rendered via CodeField's built-in gutter — that
+/// feature has a real bug in this package where multi-digit line numbers
+/// (10, 11, 12...) split one digit per row instead of showing as one
+/// number. This gutter is built from scratch instead: a plain TextField
+/// (still syntax-highlighted, since that comes from CodeController's own
+/// buildTextSpan + the CodeTheme ancestor — nothing to do with CodeField)
+/// next to a manually-drawn number column. Lines never soft-wrap (long
+/// lines scroll sideways instead), so every logical line is guaranteed to
+/// be exactly one row tall — that's what makes the numbers line up
+/// perfectly. The two columns scroll together via an explicit listener
+/// that mirrors the code column's offset onto the (touch-disabled) gutter
+/// column — just sharing one ScrollController between two Scrollables does
+/// NOT keep them in sync during a drag, so this manual mirroring is
+/// required for correctness.
+class CodeEditorView extends StatefulWidget {
   final CodeController controller;
   final EditorLanguage currentLanguage;
   final ValueChanged<EditorLanguage> onLanguageChanged;
@@ -23,6 +30,47 @@ class CodeEditorView extends StatelessWidget {
     required this.currentLanguage,
     required this.onLanguageChanged,
   });
+
+  @override
+  State<CodeEditorView> createState() => _CodeEditorViewState();
+}
+
+class _CodeEditorViewState extends State<CodeEditorView> {
+  static const double _fontSize = 14;
+  static const double _lineHeightMultiplier = 1.5;
+  static const double _lineHeight = _fontSize * _lineHeightMultiplier;
+  static const double _gutterWidth = 46;
+  static const double _codeMinWidth = 2000; // generous so lines never soft-wrap
+
+  static const _codeStyle = TextStyle(fontFamily: 'monospace', fontSize: _fontSize, height: _lineHeightMultiplier);
+  static const _strut = StrutStyle(fontSize: _fontSize, height: _lineHeightMultiplier, forceStrutHeight: true);
+
+  final _codeScrollController = ScrollController();
+  final _gutterScrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    // The gutter never receives touch (NeverScrollableScrollPhysics) — it
+    // only ever moves by mirroring the code column's real scroll offset.
+    _codeScrollController.addListener(_mirrorScrollToGutter);
+  }
+
+  void _mirrorScrollToGutter() {
+    if (!_gutterScrollController.hasClients) return;
+    final target = _codeScrollController.offset;
+    final max = _gutterScrollController.position.maxScrollExtent;
+    final min = _gutterScrollController.position.minScrollExtent;
+    _gutterScrollController.jumpTo(target.clamp(min, max));
+  }
+
+  @override
+  void dispose() {
+    _codeScrollController.removeListener(_mirrorScrollToGutter);
+    _codeScrollController.dispose();
+    _gutterScrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,14 +99,14 @@ class CodeEditorView extends StatelessWidget {
                 const Spacer(),
                 DropdownButtonHideUnderline(
                   child: DropdownButton<EditorLanguage>(
-                    value: currentLanguage,
+                    value: widget.currentLanguage,
                     isDense: true,
                     borderRadius: BorderRadius.circular(12),
                     items: EditorLanguage.values
                         .map((lang) => DropdownMenuItem(value: lang, child: Text(lang.label)))
                         .toList(),
                     onChanged: (lang) {
-                      if (lang != null) onLanguageChanged(lang);
+                      if (lang != null) widget.onLanguageChanged(lang);
                     },
                   ),
                 ),
@@ -66,25 +114,78 @@ class CodeEditorView extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: CodeTheme(
-                data: CodeThemeData(styles: atomOneDarkTheme),
-                child: CodeField(
-                  controller: controller,
-                  expands: true,
-                  textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 14, height: 1.5),
-                  background: Colors.transparent,
-                  lineNumberStyle: LineNumberStyle(
-                    width: 50,
-                    margin: 10,
-                    textStyle: TextStyle(
-                      fontFamily: 'monospace',
-                      color: scheme.onSurfaceVariant.withOpacity(0.5),
-                      fontSize: 14,
+            child: CodeTheme(
+              data: CodeThemeData(styles: atomOneDarkTheme),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    width: _gutterWidth,
+                    child: SingleChildScrollView(
+                      controller: _gutterScrollController,
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(top: 8),
+                      child: AnimatedBuilder(
+                        animation: widget.controller,
+                        builder: (context, _) {
+                          final lineCount = '\n'.allMatches(widget.controller.text).length + 1;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: List.generate(
+                              lineCount,
+                              (i) => SizedBox(
+                                height: _lineHeight,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 10),
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      '${i + 1}',
+                                      style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: _fontSize,
+                                        color: scheme.onSurfaceVariant.withOpacity(0.5),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
-                ),
+                  Container(width: 1, color: scheme.outlineVariant.withOpacity(0.3)),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: _codeScrollController,
+                      padding: const EdgeInsets.only(top: 8, left: 8, bottom: 24),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: _codeMinWidth,
+                          child: TextField(
+                            controller: widget.controller,
+                            maxLines: null,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            style: _codeStyle,
+                            strutStyle: _strut,
+                            cursorColor: scheme.primary,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
