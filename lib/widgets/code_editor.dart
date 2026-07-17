@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:code_text_field/code_text_field.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import '../models/editor_language.dart';
 
 /// Editor surface: language dropdown header + syntax-highlighted CodeField.
+///
+/// IMPORTANT: uses the built-in 'monospace' font family (not a downloaded
+/// Google Font) for both the code and the line-number gutter. A downloaded
+/// font loads asynchronously — the gutter's width gets measured against a
+/// fallback font first, then the glyphs swap once the real font arrives,
+/// which is what caused multi-digit line numbers to wrap onto extra rows.
+/// 'monospace' is bundled with the OS, so it's available instantly and the
+/// measurement always matches what's rendered.
 class CodeEditorView extends StatelessWidget {
   final CodeController controller;
   final EditorLanguage currentLanguage;
@@ -66,14 +73,15 @@ class CodeEditorView extends StatelessWidget {
                 child: CodeField(
                   controller: controller,
                   expands: true,
-                  textStyle: GoogleFonts.firaCode(fontSize: 14, height: 1.5),
+                  textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 14, height: 1.5),
                   background: Colors.transparent,
                   lineNumberStyle: LineNumberStyle(
-                    width: 44,
-                    margin: 12,
-                    textStyle: GoogleFonts.firaCode(
+                    width: 50,
+                    margin: 10,
+                    textStyle: TextStyle(
+                      fontFamily: 'monospace',
                       color: scheme.onSurfaceVariant.withOpacity(0.5),
-                      fontSize: 13,
+                      fontSize: 14,
                     ),
                   ),
                 ),
