@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../models/file_entry.dart';
@@ -19,6 +20,7 @@ class FileBrowserView extends StatefulWidget {
   final String tabLabel;
   final ClipboardController clipboard;
   final VoidCallback? onNavigationChanged;
+  final bool isWorkplaceTab;
 
   const FileBrowserView({
     super.key,
@@ -26,6 +28,7 @@ class FileBrowserView extends StatefulWidget {
     required this.tabLabel,
     required this.clipboard,
     this.onNavigationChanged,
+    this.isWorkplaceTab = false,
   });
 
   @override
@@ -51,6 +54,12 @@ class FileBrowserViewState extends State<FileBrowserView> {
 
   bool _selectionModeActive = false;
   final Set<String> _selectedPaths = {};
+
+  // Workplace-only state: showing the pinned-shortcuts list vs. having
+  // drilled into one shortcut's real folder contents.
+  bool _atShortcutsList = false;
+  String? _activeShortcutRoot;
+  List<FileEntry> _shortcutEntries = [];
 
   @override
   void initState() {
@@ -95,7 +104,89 @@ class FileBrowserViewState extends State<FileBrowserView> {
       }
       return;
     }
+
+    if (widget.isWorkplaceTab) {
+      await _loadShortcuts();
+      if (mounted) {
+        setState(() {
+          _atShortcutsList = true;
+          _loading = false;
+        });
+      }
+      return;
+    }
+
     await _loadDirectory(_currentPath);
+  }
+
+  /// Reads the pinned shortcut paths and builds display entries for them.
+  /// Shortcuts whose real folder no longer exists (deleted/moved) are
+  /// silently pruned from the saved list.
+  Future<void> _loadShortcuts() async {
+    final paths = await _prefsService.loadWorkplaceShortcuts();
+    final entries = <FileEntry>[];
+    final stillValid = <String>[];
+
+    for (final path in paths) {
+      final dir = Directory(path);
+      if (await dir.exists()) {
+        try {
+          final stat = await dir.stat();
+          final isGit = await Directory('$path/.git').exists();
+          entries.add(FileEntry(
+            name: path.split('/').last,
+            path: path,
+            isDirectory: true,
+            sizeBytes: 0,
+            modified: stat.modified,
+            isGitRepo: isGit,
+          ));
+          stillValid.add(path);
+        } catch (_) {
+          continue;
+        }
+      }
+    }
+
+    if (stillValid.length != paths.length) {
+      await _prefsService.saveWorkplaceShortcuts(stillValid);
+    }
+    if (mounted) setState(() => _shortcutEntries = entries);
+  }
+
+  /// Called by the parent when this tab becomes active, so newly-added
+  /// shortcuts (pinned from another tab) show up immediately.
+  Future<void> reloadShortcuts() async {
+    if (!widget.isWorkplaceTab) return;
+    await _loadShortcuts();
+  }
+
+  Future<void> _openShortcut(FileEntry entry) async {
+    setState(() {
+      _atShortcutsList = false;
+      _activeShortcutRoot = entry.path;
+    });
+    await _loadDirectory(entry.path);
+  }
+
+  Future<void> _addToWorkplace(FileEntry entry) async {
+    final current = await _prefsService.loadWorkplaceShortcuts();
+    if (!current.contains(entry.path)) {
+      current.add(entry.path);
+      await _prefsService.saveWorkplaceShortcuts(current);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('📌 Added "${entry.name}" to Workplace')),
+      );
+    }
+  }
+
+  Future<void> _removeFromWorkplace(String path) async {
+    final current = await _prefsService.loadWorkplaceShortcuts();
+    current.remove(path);
+    await _prefsService.saveWorkplaceShortcuts(current);
+    await _loadShortcuts();
   }
 
   /// Re-reads persisted behavior settings (called by the parent after the
@@ -130,7 +221,7 @@ class FileBrowserViewState extends State<FileBrowserView> {
     widget.onNavigationChanged?.call();
   }
 
-  bool get _atRoot => _currentPath == widget.rootPath;
+  bool get _atRoot => widget.isWorkplaceTab ? _atShortcutsList : _currentPath == widget.rootPath;
   String get _folderTitle => _atRoot ? widget.tabLabel : _currentPath.split('/').last;
 
   List<FileEntry> get _visibleEntries {
@@ -161,6 +252,14 @@ class FileBrowserViewState extends State<FileBrowserView> {
   }
 
   void _navigateUp() {
+    if (widget.isWorkplaceTab && _currentPath == _activeShortcutRoot) {
+      setState(() {
+        _atShortcutsList = true;
+        _activeShortcutRoot = null;
+      });
+      widget.onNavigationChanged?.call();
+      return;
+    }
     if (_atRoot) return;
     final segments = _currentPath.split('/')..removeLast();
     _loadDirectory(segments.join('/'));
@@ -196,9 +295,25 @@ class FileBrowserViewState extends State<FileBrowserView> {
     widget.onNavigationChanged?.call();
   }
 
-  void goHome() => _loadDirectory(widget.rootPath);
+  void goHome() {
+    if (widget.isWorkplaceTab) {
+      setState(() {
+        _atShortcutsList = true;
+        _activeShortcutRoot = null;
+      });
+      widget.onNavigationChanged?.call();
+      return;
+    }
+    _loadDirectory(widget.rootPath);
+  }
 
   void enterSelectionMode() {
+    if (widget.isWorkplaceTab && _atShortcutsList) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Open a shortcut first to select files inside it.')),
+      );
+      return;
+    }
     setState(() => _selectionModeActive = true);
     widget.onNavigationChanged?.call();
   }
@@ -233,6 +348,12 @@ class FileBrowserViewState extends State<FileBrowserView> {
   }
 
   void showCreateSheet() {
+    if (widget.isWorkplaceTab && _atShortcutsList) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Open a shortcut first to create files inside it.')),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -467,6 +588,11 @@ class FileBrowserViewState extends State<FileBrowserView> {
   // ---------------- Per-item action sheet ----------------
 
   void _showEntryActionSheet(FileEntry entry) {
+    if (widget.isWorkplaceTab && _atShortcutsList) {
+      _showShortcutActionSheet(entry);
+      return;
+    }
+
     showModalBottomSheet<String>(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -491,6 +617,12 @@ class FileBrowserViewState extends State<FileBrowserView> {
                 title: const Text('Push to GitHub'),
                 subtitle: const Text('Commits every file in this folder'),
                 onTap: () => Navigator.pop(ctx, 'push'),
+              ),
+            if (entry.isDirectory)
+              ListTile(
+                leading: const Icon(Icons.bookmark_add_outlined),
+                title: const Text('Add to Workplace'),
+                onTap: () => Navigator.pop(ctx, 'addToWorkplace'),
               ),
             ListTile(
               leading: const Icon(Icons.check_box_outlined),
@@ -518,6 +650,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
         case 'push':
           await showRepoPushDialog(context, folderPath: entry.path);
           break;
+        case 'addToWorkplace':
+          await _addToWorkplace(entry);
+          break;
         case 'select':
           setState(() {
             _selectionModeActive = true;
@@ -530,6 +665,45 @@ class FileBrowserViewState extends State<FileBrowserView> {
           break;
         case 'delete':
           _deleteEntry(entry);
+          break;
+      }
+    });
+  }
+
+  void _showShortcutActionSheet(FileEntry entry) {
+    showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.folder_rounded),
+              title: Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: const Text('Choose an action'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.launch_rounded),
+              title: const Text('Open'),
+              onTap: () => Navigator.pop(ctx, 'open'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bookmark_remove_outlined, color: Colors.redAccent),
+              title: const Text('Remove from Workplace'),
+              subtitle: const Text('Only unpins the shortcut — the real folder stays untouched'),
+              onTap: () => Navigator.pop(ctx, 'remove'),
+            ),
+          ],
+        ),
+      ),
+    ).then((action) async {
+      switch (action) {
+        case 'open':
+          _openShortcut(entry);
+          break;
+        case 'remove':
+          await _removeFromWorkplace(entry.path);
           break;
       }
     });
@@ -647,6 +821,7 @@ class FileBrowserViewState extends State<FileBrowserView> {
 
   Widget _buildClipboardBar(ColorScheme scheme) {
     if (!widget.clipboard.hasItems) return const SizedBox.shrink();
+    if (widget.isWorkplaceTab && _atShortcutsList) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       color: scheme.surfaceContainerHighest,
@@ -696,6 +871,10 @@ class FileBrowserViewState extends State<FileBrowserView> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    if (widget.isWorkplaceTab && _atShortcutsList) {
+      return _buildShortcutsList(scheme);
+    }
+
     final visible = _visibleEntries;
 
     if (visible.isEmpty) {
@@ -738,6 +917,56 @@ class FileBrowserViewState extends State<FileBrowserView> {
               if (_selectionModeActive) return;
               _showEntryActionSheet(entry);
             },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildShortcutsList(ColorScheme scheme) {
+    final query = _searchQuery.toLowerCase();
+    final visible = query.isEmpty
+        ? _shortcutEntries
+        : _shortcutEntries.where((e) => e.name.toLowerCase().contains(query)).toList();
+
+    if (visible.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.bookmark_border_rounded, size: 48, color: scheme.onSurfaceVariant),
+              const SizedBox(height: 12),
+              Text(
+                _shortcutEntries.isEmpty ? 'No shortcuts yet' : 'No matches',
+                style: TextStyle(color: scheme.onSurfaceVariant, fontWeight: FontWeight.w600),
+              ),
+              if (_shortcutEntries.isEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Long-press a folder in Storage or SD Card and tap "Add to Workplace".',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadShortcuts,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        itemCount: visible.length,
+        itemBuilder: (context, index) {
+          final entry = visible[index];
+          return FileListTile(
+            entry: entry,
+            onTap: () => _openShortcut(entry),
+            onLongPress: () => _showShortcutActionSheet(entry),
           );
         },
       ),

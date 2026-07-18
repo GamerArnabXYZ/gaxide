@@ -6,10 +6,14 @@ import '../services/prefs_service.dart';
 import '../widgets/file_browser_view.dart';
 import 'settings_screen.dart';
 
-/// Home screen — hosts two independent storage tabs (Internal + SD Card,
-/// ZArchiver-style), each a self-contained [FileBrowserView]. The app bar,
-/// FAB, search/sort/select actions live here and are delegated down to
-/// whichever tab is currently active via GlobalKeys.
+/// Home screen — hosts three independent tabs, each a self-contained
+/// [FileBrowserView]:
+///   0. Workplace — a pinned-shortcuts collection, starts empty, fixed
+///      name, not editable from Settings.
+///   1. Storage — internal storage root (editable path/label).
+///   2. SD Card — external storage, auto-detected or custom (editable).
+/// The app bar, FAB, search/sort/select actions live here and are
+/// delegated down to whichever tab is currently active via GlobalKeys.
 class FileManagerScreen extends StatefulWidget {
   const FileManagerScreen({super.key});
 
@@ -23,11 +27,12 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
   final _prefsService = PrefsService();
   final _fileService = FileService();
 
-  final _tab1Key = GlobalKey<FileBrowserViewState>();
-  final _tab2Key = GlobalKey<FileBrowserViewState>();
+  final _workplaceKey = GlobalKey<FileBrowserViewState>();
+  final _tab1Key = GlobalKey<FileBrowserViewState>(); // Storage
+  final _tab2Key = GlobalKey<FileBrowserViewState>(); // SD Card
 
   String _tab1Path = FileService.rootStoragePath;
-  String _tab1Label = 'Internal';
+  String _tab1Label = 'Storage';
   String? _tab2Path;
   String _tab2Label = 'SD Card';
 
@@ -36,9 +41,14 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) setState(() {});
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+        if (_tabController.index == 0) {
+          _workplaceKey.currentState?.reloadShortcuts();
+        }
+      }
     });
     _loadTabConfig();
   }
@@ -57,7 +67,7 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
     if (!mounted) return;
     setState(() {
       _tab1Path = tabs.tab1Path.trim().isNotEmpty ? tabs.tab1Path.trim() : FileService.rootStoragePath;
-      _tab1Label = tabs.tab1Label.trim().isNotEmpty ? tabs.tab1Label.trim() : 'Internal';
+      _tab1Label = tabs.tab1Label.trim().isNotEmpty ? tabs.tab1Label.trim() : 'Storage';
       _tab2Path = resolvedTab2;
       _tab2Label = tabs.tab2Label.trim().isNotEmpty ? tabs.tab2Label.trim() : 'SD Card';
       _tabsLoading = false;
@@ -67,11 +77,21 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
   Future<void> _openSettings() async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
     await _loadTabConfig();
+    _workplaceKey.currentState?.reloadPreferences();
     _tab1Key.currentState?.reloadPreferences();
     _tab2Key.currentState?.reloadPreferences();
   }
 
-  GlobalKey<FileBrowserViewState> get _activeKey => _tabController.index == 0 ? _tab1Key : _tab2Key;
+  GlobalKey<FileBrowserViewState> get _activeKey {
+    switch (_tabController.index) {
+      case 0:
+        return _workplaceKey;
+      case 1:
+        return _tab1Key;
+      default:
+        return _tab2Key;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +144,7 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
           bottom: TabBar(
             controller: _tabController,
             tabs: [
+              const Tab(icon: Icon(Icons.bookmark_rounded, size: 18), text: 'Workplace'),
               Tab(icon: const Icon(Icons.smartphone_rounded, size: 18), text: _tab1Label),
               Tab(icon: const Icon(Icons.sd_card_rounded, size: 18), text: _tab2Label),
             ],
@@ -133,19 +154,29 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
           controller: _tabController,
           children: [
             FileBrowserView(
+              key: _workplaceKey,
+              rootPath: '',
+              tabLabel: 'Workplace',
+              clipboard: _clipboard,
+              isWorkplaceTab: true,
+              onNavigationChanged: () => setState(() {}),
+            ),
+            FileBrowserView(
               key: _tab1Key,
               rootPath: _tab1Path,
               tabLabel: _tab1Label,
               clipboard: _clipboard,
               onNavigationChanged: () => setState(() {}),
             ),
-            _tab2Path == null ? _buildNoExternalStorage() : FileBrowserView(
-              key: _tab2Key,
-              rootPath: _tab2Path!,
-              tabLabel: _tab2Label,
-              clipboard: _clipboard,
-              onNavigationChanged: () => setState(() {}),
-            ),
+            _tab2Path == null
+                ? _buildNoExternalStorage()
+                : FileBrowserView(
+                    key: _tab2Key,
+                    rootPath: _tab2Path!,
+                    tabLabel: _tab2Label,
+                    clipboard: _clipboard,
+                    onNavigationChanged: () => setState(() {}),
+                  ),
           ],
         ),
         floatingActionButton: FloatingActionButton(

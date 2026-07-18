@@ -46,6 +46,7 @@ class PrefsService {
   static const _kDefaultSort = 'gax_default_sort';
   static const _kFontSize = 'gax_editor_font_size';
   static const _kQuickToolbar = 'gax_quick_toolbar';
+  static const _kWorkplaceShortcuts = 'gax_workplace_shortcuts';
 
   Future<void> saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
@@ -125,5 +126,18 @@ class PrefsService {
       }
     }
     return result.isEmpty ? QuickActionX.defaultToolbar : result;
+  }
+
+  /// Ordered list of absolute folder paths pinned to the Workplace tab.
+  /// These are shortcuts only — the real folder always lives at its
+  /// original location; nothing is ever copied.
+  Future<void> saveWorkplaceShortcuts(List<String> paths) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kWorkplaceShortcuts, paths);
+  }
+
+  Future<List<String>> loadWorkplaceShortcuts() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_kWorkplaceShortcuts) ?? [];
   }
 }

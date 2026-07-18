@@ -135,12 +135,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Tab 1', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: scheme.primary)),
+                  Row(
+                    children: [
+                      Icon(Icons.bookmark_rounded, size: 16, color: scheme.onSurfaceVariant.withOpacity(0.7)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Tab 1 is always "Workplace" — a shortcuts collection, not a real folder. Not editable.',
+                          style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Text('Tab 2', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: scheme.primary)),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _tab1LabelController,
                     onChanged: _persistTabs,
-                    decoration: const InputDecoration(labelText: 'Label', hintText: 'Internal'),
+                    decoration: const InputDecoration(labelText: 'Label', hintText: 'Storage'),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -149,7 +162,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     decoration: InputDecoration(labelText: 'Path', hintText: FileService.rootStoragePath),
                   ),
                   const Divider(height: 32),
-                  Text('Tab 2', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: scheme.primary)),
+                  Text('Tab 3', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: scheme.primary)),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _tab2LabelController,
