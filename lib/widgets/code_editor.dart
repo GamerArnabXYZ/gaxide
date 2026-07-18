@@ -11,14 +11,23 @@ import '../models/editor_language.dart';
 /// number. This gutter is built from scratch instead: a plain TextField
 /// (still syntax-highlighted, since that comes from CodeController's own
 /// buildTextSpan + the CodeTheme ancestor — nothing to do with CodeField)
-/// next to a manually-drawn number column. Lines never soft-wrap (long
-/// lines scroll sideways instead), so every logical line is guaranteed to
-/// be exactly one row tall — that's what makes the numbers line up
-/// perfectly. The two columns scroll together via an explicit listener
-/// that mirrors the code column's offset onto the (touch-disabled) gutter
-/// column — just sharing one ScrollController between two Scrollables does
-/// NOT keep them in sync during a drag, so this manual mirroring is
-/// required for correctness.
+/// next to a manually-drawn number column.
+///
+/// The gutter is a single multi-line Text widget ("1\n2\n3...") using the
+/// EXACT SAME TextStyle + StrutStyle as the code TextField — not a column
+/// of fixed-height boxes. Two different rendering systems (a hand-sized
+/// box grid vs. the text engine that actually lays out the code) can each
+/// compute a slightly different height per line — especially for blank
+/// lines — and that tiny gap compounds over many lines into visible drift.
+/// Using the identical text engine + identical style for both sides means
+/// whatever Flutter decides a line's height is, both columns agree on it.
+///
+/// Lines never soft-wrap (long lines scroll sideways instead), so every
+/// logical line is guaranteed to be exactly one row tall in both columns.
+/// The two columns scroll together via an explicit listener that mirrors
+/// the code column's offset onto the (touch-disabled) gutter column — just
+/// sharing one ScrollController between two Scrollables does NOT keep them
+/// in sync during a drag, so this manual mirroring is required.
 class CodeEditorView extends StatefulWidget {
   final CodeController controller;
   final EditorLanguage currentLanguage;
@@ -38,7 +47,6 @@ class CodeEditorView extends StatefulWidget {
 class _CodeEditorViewState extends State<CodeEditorView> {
   static const double _fontSize = 14;
   static const double _lineHeightMultiplier = 1.5;
-  static const double _lineHeight = _fontSize * _lineHeightMultiplier;
   static const double _gutterWidth = 46;
   static const double _codeMinWidth = 2000; // generous so lines never soft-wrap
 
@@ -124,33 +132,22 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                     child: SingleChildScrollView(
                       controller: _gutterScrollController,
                       physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.only(top: 8, right: 10),
                       child: AnimatedBuilder(
                         animation: widget.controller,
                         builder: (context, _) {
                           final lineCount = '\n'.allMatches(widget.controller.text).length + 1;
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: List.generate(
-                              lineCount,
-                              (i) => SizedBox(
-                                height: _lineHeight,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 10),
-                                  child: Align(
-                                    alignment: Alignment.centerRight,
-                                    child: Text(
-                                      '${i + 1}',
-                                      style: TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontSize: _fontSize,
-                                        color: scheme.onSurfaceVariant.withOpacity(0.5),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                          final numbers = List.generate(lineCount, (i) => '${i + 1}').join('\n');
+                          return Text(
+                            numbers,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: _fontSize,
+                              height: _lineHeightMultiplier,
+                              color: scheme.onSurfaceVariant.withOpacity(0.5),
                             ),
+                            strutStyle: _strut,
                           );
                         },
                       ),
