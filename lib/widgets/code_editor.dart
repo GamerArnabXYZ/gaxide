@@ -47,8 +47,8 @@ class CodeEditorView extends StatefulWidget {
 }
 
 class _CodeEditorViewState extends State<CodeEditorView> {
-  static const double _minFontSize = 10;
-  static const double _maxFontSize = 28;
+  static const double _minFontSize = 2;
+  static const double _maxFontSize = 30;
   static const double _lineHeightMultiplier = 1.5;
   static const double _gutterWidth = 46;
   static const double _codeMinWidth = 2000; // generous so lines never soft-wrap
@@ -151,11 +151,6 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                 const SizedBox(width: 8),
                 const Text('Language', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 const Spacer(),
-                Text(
-                  '${_fontSize.round()}px',
-                  style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant.withOpacity(0.6)),
-                ),
-                const SizedBox(width: 10),
                 DropdownButtonHideUnderline(
                   child: DropdownButton<EditorLanguage>(
                     value: widget.currentLanguage,

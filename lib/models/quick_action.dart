@@ -49,6 +49,36 @@ extension QuickActionX on QuickAction {
     QuickAction.redo,
   ];
 
+  /// Parses a space-separated string of labels (e.g. "Tab { } ( ) ; Undo")
+  /// typed by the user in Settings into an ordered, de-duplicated action
+  /// list. Unrecognized tokens are silently skipped.
+  static List<QuickAction> parseFromInput(String input) {
+    final tokens = input.trim().split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+    final result = <QuickAction>[];
+    for (final token in tokens) {
+      final match = _matchToken(token);
+      if (match != null && !result.contains(match)) {
+        result.add(match);
+      }
+    }
+    return result;
+  }
+
+  static QuickAction? _matchToken(String token) {
+    final lower = token.toLowerCase();
+    for (final action in QuickAction.values) {
+      if (action.label.toLowerCase() == lower) return action;
+    }
+    return null;
+  }
+
+  /// The reverse of [parseFromInput] — turns the current list back into the
+  /// space-separated string shown/edited in the Settings input box.
+  static String toInputString(List<QuickAction> actions) => actions.map((a) => a.label).join(' ');
+
+  /// All recognizable tokens, for the helper caption in Settings.
+  static String get catalogHint => QuickAction.values.map((a) => a.label).join(' ');
+
   String get label {
     switch (this) {
       case QuickAction.tab:

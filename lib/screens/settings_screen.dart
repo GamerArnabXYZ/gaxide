@@ -23,11 +23,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _tab1PathController = TextEditingController();
   final _tab2LabelController = TextEditingController();
   final _tab2PathController = TextEditingController();
+  final _quickToolbarController = TextEditingController();
 
   bool _showHidden = false;
   bool _confirmDelete = true;
   SortMode _defaultSort = SortMode.nameAsc;
-  Set<QuickAction> _enabledQuickActions = QuickActionX.defaultToolbar.toSet();
 
   bool _loading = true;
   String? _detectedSdPath;
@@ -51,12 +51,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _tab1PathController.text = tabs.tab1Path;
     _tab2LabelController.text = tabs.tab2Label;
     _tab2PathController.text = tabs.tab2Path;
+    _quickToolbarController.text = QuickActionX.toInputString(quickActions);
 
     setState(() {
       _showHidden = fmPrefs.showHiddenFiles;
       _confirmDelete = fmPrefs.confirmBeforeDelete;
       _defaultSort = SortMode.values[fmPrefs.defaultSortIndex];
-      _enabledQuickActions = quickActions.toSet();
       _loading = false;
     });
   }
@@ -68,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _tab1PathController.dispose();
     _tab2LabelController.dispose();
     _tab2PathController.dispose();
+    _quickToolbarController.dispose();
     super.dispose();
   }
 
@@ -86,9 +87,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         defaultSortIndex: _defaultSort.index,
       ));
 
-  Future<void> _persistQuickToolbar() {
-    final ordered = QuickAction.values.where((a) => _enabledQuickActions.contains(a)).toList();
-    return _prefsService.saveQuickToolbar(ordered);
+  Future<void> _persistQuickToolbar([String? _]) {
+    final parsed = QuickActionX.parseFromInput(_quickToolbarController.text);
+    return _prefsService.saveQuickToolbar(parsed);
   }
 
   @override
@@ -227,27 +228,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Choose which quick-insert buttons appear above the keyboard while coding.',
+                    'Type the buttons you want, separated by spaces, in the order you want them.',
                     style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
                   ),
-                  const SizedBox(height: 4),
-                  ...QuickAction.values.map(
-                    (action) => CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: Text(action.label, style: const TextStyle(fontFamily: 'monospace')),
-                      value: _enabledQuickActions.contains(action),
-                      onChanged: (checked) {
-                        setState(() {
-                          if (checked == true) {
-                            _enabledQuickActions.add(action);
-                          } else {
-                            _enabledQuickActions.remove(action);
-                          }
-                        });
-                        _persistQuickToolbar();
-                      },
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _quickToolbarController,
+                    onChanged: _persistQuickToolbar,
+                    style: const TextStyle(fontFamily: 'monospace'),
+                    decoration: InputDecoration(
+                      labelText: 'Toolbar buttons',
+                      hintText: '{ } ( ) ; = " Undo Redo',
+                      suffixIcon: IconButton(
+                        tooltip: 'Reset to default',
+                        icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                        onPressed: () {
+                          _quickToolbarController.text = QuickActionX.toInputString(QuickActionX.defaultToolbar);
+                          _persistQuickToolbar();
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Available: ${QuickActionX.catalogHint}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      color: scheme.onSurfaceVariant.withOpacity(0.6),
                     ),
                   ),
                 ],
