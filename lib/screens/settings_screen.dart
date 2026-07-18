@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/quick_action.dart';
 import '../models/sort_mode.dart';
 import '../services/file_service.dart';
 import '../services/prefs_service.dart';
@@ -26,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showHidden = false;
   bool _confirmDelete = true;
   SortMode _defaultSort = SortMode.nameAsc;
+  Set<QuickAction> _enabledQuickActions = QuickActionX.defaultToolbar.toSet();
 
   bool _loading = true;
   String? _detectedSdPath;
@@ -40,6 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final config = await _prefsService.loadConfig();
     final tabs = await _prefsService.loadTabSettings();
     final fmPrefs = await _prefsService.loadFileManagerPrefs();
+    final quickActions = await _prefsService.loadQuickToolbar();
     _detectedSdPath = await _fileService.detectSecondaryStoragePath();
 
     if (!mounted) return;
@@ -53,6 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _showHidden = fmPrefs.showHiddenFiles;
       _confirmDelete = fmPrefs.confirmBeforeDelete;
       _defaultSort = SortMode.values[fmPrefs.defaultSortIndex];
+      _enabledQuickActions = quickActions.toSet();
       _loading = false;
     });
   }
@@ -81,6 +85,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         confirmBeforeDelete: _confirmDelete,
         defaultSortIndex: _defaultSort.index,
       ));
+
+  Future<void> _persistQuickToolbar() {
+    final ordered = QuickAction.values.where((a) => _enabledQuickActions.contains(a)).toList();
+    return _prefsService.saveQuickToolbar(ordered);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -207,6 +216,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() => _defaultSort = m);
                       _persistFmPrefs();
                     },
+                  ),
+                ],
+              ),
+            ),
+            _sectionHeader('Quick Toolbar'),
+            _card(
+              scheme,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Choose which quick-insert buttons appear above the keyboard while coding.',
+                    style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                  ),
+                  const SizedBox(height: 4),
+                  ...QuickAction.values.map(
+                    (action) => CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(action.label, style: const TextStyle(fontFamily: 'monospace')),
+                      value: _enabledQuickActions.contains(action),
+                      onChanged: (checked) {
+                        setState(() {
+                          if (checked == true) {
+                            _enabledQuickActions.add(action);
+                          } else {
+                            _enabledQuickActions.remove(action);
+                          }
+                        });
+                        _persistQuickToolbar();
+                      },
+                    ),
                   ),
                 ],
               ),

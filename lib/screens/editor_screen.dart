@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:code_text_field/code_text_field.dart';
 
 import '../models/editor_language.dart';
+import '../models/quick_action.dart';
 import '../services/file_service.dart';
+import '../services/prefs_service.dart';
 import '../widgets/code_editor.dart';
+import '../widgets/quick_toolbar.dart';
 
 /// Code editor for a single file already on disk — reached by tapping a
 /// file in the File Manager (home screen). Push lives at the folder level
@@ -21,11 +24,15 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen> {
   final _fileService = FileService();
+  final _prefsService = PrefsService();
 
   late CodeController _codeController;
+  late UndoHistoryController _undoController;
   late EditorLanguage _currentLanguage;
   bool _isDirty = false;
   bool _isSaving = false;
+
+  List<QuickAction> _quickActions = QuickActionX.defaultToolbar;
 
   String get _fileName => widget.filePath.split('/').last;
 
@@ -35,6 +42,13 @@ class _EditorScreenState extends State<EditorScreen> {
     _currentLanguage = EditorLanguageX.fromExtension(_fileName);
     _codeController = CodeController(text: widget.initialContent, language: _currentLanguage.mode);
     _codeController.addListener(_markDirty);
+    _undoController = UndoHistoryController();
+    _loadQuickToolbar();
+  }
+
+  Future<void> _loadQuickToolbar() async {
+    final actions = await _prefsService.loadQuickToolbar();
+    if (mounted) setState(() => _quickActions = actions);
   }
 
   void _markDirty() {
@@ -44,19 +58,23 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void dispose() {
     _codeController.dispose();
+    _undoController.dispose();
     super.dispose();
   }
 
   void _onLanguageChanged(EditorLanguage lang) {
     final text = _codeController.text;
-    final old = _codeController;
-    old.removeListener(_markDirty);
+    final oldController = _codeController;
+    final oldUndo = _undoController;
+    oldController.removeListener(_markDirty);
     setState(() {
       _currentLanguage = lang;
       _codeController = CodeController(text: text, language: lang.mode);
       _codeController.addListener(_markDirty);
+      _undoController = UndoHistoryController();
     });
-    old.dispose();
+    oldController.dispose();
+    oldUndo.dispose();
   }
 
   Future<void> _save() async {
@@ -129,10 +147,23 @@ class _EditorScreenState extends State<EditorScreen> {
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: CodeEditorView(
-              controller: _codeController,
-              currentLanguage: _currentLanguage,
-              onLanguageChanged: _onLanguageChanged,
+            child: Column(
+              children: [
+                Expanded(
+                  child: CodeEditorView(
+                    controller: _codeController,
+                    currentLanguage: _currentLanguage,
+                    onLanguageChanged: _onLanguageChanged,
+                    undoController: _undoController,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                QuickToolbar(
+                  controller: _codeController,
+                  undoController: _undoController,
+                  actions: _quickActions,
+                ),
+              ],
             ),
           ),
         ),
