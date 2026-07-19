@@ -20,10 +20,15 @@ subprojects {
 // without pinning a JVM target, so their Kotlin compile task silently picks
 // up whatever JDK is installed (17 on current CI images) while javac stays
 // on its plugin-default 1.8/11 — causing a target-mismatch build failure.
-// Force every subproject's javac + kotlinc onto the SAME Java 17 target so
-// this can never happen again, no matter which plugin is added later.
+// Force every OTHER subproject's javac + kotlinc onto the SAME Java 17
+// target so this can never happen again, no matter which plugin is added
+// later. ":app" is skipped deliberately: it already sets Java 17 itself in
+// its own build.gradle.kts, AND evaluationDependsOn(":app") above forces it
+// to evaluate eagerly — by the time this block runs its compileOptions is
+// already finalized by AGP, so touching it again here would crash the build.
 subprojects {
-    val configureJvmTarget = {
+    if (name == "app") return@subprojects
+    afterEvaluate {
         extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { android ->
             android.compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_17
@@ -35,14 +40,6 @@ subprojects {
                 jvmTarget = JavaVersion.VERSION_17.toString()
             }
         }
-    }
-    // evaluationDependsOn(":app") above can force :app (or other modules in
-    // the dependency chain) to already be evaluated by the time this runs —
-    // calling afterEvaluate on an already-evaluated project throws. Guard both cases.
-    if (project.state.executed) {
-        configureJvmTarget()
-    } else {
-        afterEvaluate { configureJvmTarget() }
     }
 }
 
