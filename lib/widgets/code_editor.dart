@@ -184,28 +184,40 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                   children: [
                     SizedBox(
                       width: _gutterWidth,
-                      child: SingleChildScrollView(
-                        controller: _gutterScrollController,
-                        physics: const NeverScrollableScrollPhysics(),
-                        padding: const EdgeInsets.only(top: 8, right: 10),
-                        child: AnimatedBuilder(
-                          animation: widget.controller,
-                          builder: (context, _) {
-                            final lineCount = '\n'.allMatches(widget.controller.text).length + 1;
-                            final numbers = List.generate(lineCount, (i) => '${i + 1}').join('\n');
-                            return Text(
-                              numbers,
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: _fontSize,
-                                height: _lineHeightMultiplier,
-                                color: scheme.onSurfaceVariant.withOpacity(0.5),
+                      // Virtualized: only the numbers actually on screen
+                      // are ever built. The old approach rendered every
+                      // line number as ONE giant Text widget, which on
+                      // large files (1000+ lines) was slow to lay out on
+                      // open AND hit a real rendering ceiling that
+                      // silently truncated numbers past a certain height
+                      // — while the code TextField beside it kept
+                      // scrolling fine. ListView.builder has neither
+                      // problem.
+                      child: AnimatedBuilder(
+                        animation: widget.controller,
+                        builder: (context, _) {
+                          final lineCount = '\n'.allMatches(widget.controller.text).length + 1;
+                          final lineHeight = _fontSize * _lineHeightMultiplier;
+                          return ListView.builder(
+                            controller: _gutterScrollController,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: const EdgeInsets.only(top: 8, right: 10),
+                            itemExtent: lineHeight,
+                            itemCount: lineCount,
+                            itemBuilder: (context, index) => Container(
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                '${index + 1}',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: _fontSize,
+                                  color: scheme.onSurfaceVariant.withOpacity(0.5),
+                                ),
                               ),
-                              strutStyle: _strut,
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     Container(width: 1, color: scheme.outlineVariant.withOpacity(0.3)),
