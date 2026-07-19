@@ -1,14 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../models/file_entry.dart';
 import '../models/sort_mode.dart';
+import '../services/archive_service.dart';
 import '../services/clipboard_controller.dart';
 import '../services/file_service.dart';
 import '../services/prefs_service.dart';
 import '../widgets/file_list_tile.dart';
+import '../widgets/file_info_dialog.dart';
 import '../widgets/repo_push_dialog.dart';
 import '../screens/editor_screen.dart';
+import '../screens/image_viewer_screen.dart';
 
 /// One storage tab's worth of file browsing — its own root, its own
 /// navigation/search/sort/selection state. The parent (FileManagerScreen)
@@ -37,6 +41,7 @@ class FileBrowserView extends StatefulWidget {
 
 class FileBrowserViewState extends State<FileBrowserView> {
   final _fileService = FileService();
+  final _archiveService = ArchiveService();
   final _prefsService = PrefsService();
 
   late String _currentPath = widget.rootPath;
@@ -391,9 +396,28 @@ class FileBrowserViewState extends State<FileBrowserView> {
     );
   }
 
-  // ---------------- Open in Editor ----------------
+  // ---------------- Open (smart dispatch by file type) ----------------
+
+  static const _imageExtensions = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'};
 
   Future<void> _openInEditor(FileEntry entry) async {
+    final ext = entry.extension;
+
+    if (ext == 'zip') {
+      await _confirmExtract(entry);
+      return;
+    }
+
+    if (_imageExtensions.contains(ext)) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ImageViewerScreen(filePath: entry.path)),
+      );
+      return;
+    }
+
+    // Try as text/code first; anything that isn't (PDF, video, docx, apk...)
+    // falls back to the system's own app via OpenFilex.
     try {
       final content = await _fileService.readFileAsString(entry.path);
       if (!mounted) return;
@@ -402,10 +426,87 @@ class FileBrowserViewState extends State<FileBrowserView> {
         MaterialPageRoute(builder: (_) => EditorScreen(filePath: entry.path, initialContent: content)),
       );
       if (mounted) _loadDirectory(_currentPath);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Could not open: $e')));
+    } catch (_) {
+      try {
+        final result = await OpenFilex.open(entry.path);
+        if (mounted && result.type != ResultType.done) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('⚠️ ${result.message}')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Could not open: $e')));
+        }
       }
+    }
+  }
+
+  // ---------------- Archive: extract / compress ----------------
+
+  Future<void> _confirmExtract(FileEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Extract Archive?'),
+        content: Text('Extract "${entry.name}" into this folder?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Extract')),
+        ],
+      ),
+    );
+    if (confirmed == true) await _extractZip(entry);
+  }
+
+  Future<void> _extractZip(FileEntry entry) async {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⏳ Extracting...')));
+    try {
+      final destination = await _archiveService.extractZip(entry.path);
+      await _loadDirectory(_currentPath);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Extracted to ${destination.split('/').last}/')),
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Extract failed: $e')));
+    }
+  }
+
+  Future<void> _compressEntry(FileEntry entry) async {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⏳ Compressing...')));
+    try {
+      final zipPath = entry.isDirectory
+          ? await _archiveService.compressFolder(entry.path)
+          : await _archiveService.compressFile(entry.path);
+      await _loadDirectory(_currentPath);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Created ${zipPath.split('/').last}')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Compress failed: $e')));
+    }
+  }
+
+  Future<void> _compressSelected() async {
+    final entries = _allEntries.where((e) => _selectedPaths.contains(e.path)).toList();
+    final paths = entries.map((e) => e.path).toList();
+    setState(() {
+      _selectionModeActive = false;
+      _selectedPaths.clear();
+    });
+    widget.onNavigationChanged?.call();
+
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⏳ Compressing...')));
+    try {
+      final zipPath = await _archiveService.compressMultiple(paths, _currentPath);
+      await _loadDirectory(_currentPath);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Created ${zipPath.split('/').last}')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Compress failed: $e')));
     }
   }
 
@@ -611,6 +712,17 @@ class FileBrowserViewState extends State<FileBrowserView> {
                 title: const Text('Open in Editor'),
                 onTap: () => Navigator.pop(ctx, 'open'),
               ),
+            if (entry.extension == 'zip')
+              ListTile(
+                leading: const Icon(Icons.unarchive_rounded),
+                title: const Text('Extract Here'),
+                onTap: () => Navigator.pop(ctx, 'extract'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.folder_zip_outlined),
+              title: const Text('Compress to Zip'),
+              onTap: () => Navigator.pop(ctx, 'compress'),
+            ),
             if (entry.isDirectory)
               ListTile(
                 leading: const Icon(Icons.cloud_upload_rounded, color: Color(0xFF16A34A)),
@@ -635,6 +747,11 @@ class FileBrowserViewState extends State<FileBrowserView> {
               onTap: () => Navigator.pop(ctx, 'rename'),
             ),
             ListTile(
+              leading: const Icon(Icons.info_outline_rounded),
+              title: const Text('Properties'),
+              onTap: () => Navigator.pop(ctx, 'properties'),
+            ),
+            ListTile(
               leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
               title: const Text('Delete'),
               onTap: () => Navigator.pop(ctx, 'delete'),
@@ -646,6 +763,12 @@ class FileBrowserViewState extends State<FileBrowserView> {
       switch (action) {
         case 'open':
           _openInEditor(entry);
+          break;
+        case 'extract':
+          await _extractZip(entry);
+          break;
+        case 'compress':
+          await _compressEntry(entry);
           break;
         case 'push':
           await showRepoPushDialog(context, folderPath: entry.path);
@@ -659,6 +782,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
             _selectedPaths.add(entry.path);
           });
           widget.onNavigationChanged?.call();
+          break;
+        case 'properties':
+          await showFileInfoDialog(context, entry);
           break;
         case 'rename':
           _renameEntry(entry);
@@ -756,6 +882,11 @@ class FileBrowserViewState extends State<FileBrowserView> {
                 tooltip: 'Copy',
                 icon: const Icon(Icons.copy_rounded),
                 onPressed: _selectedPaths.isEmpty ? null : () => _cutOrCopySelected(isCut: false),
+              ),
+              IconButton(
+                tooltip: 'Compress to Zip',
+                icon: const Icon(Icons.folder_zip_rounded),
+                onPressed: _selectedPaths.isEmpty ? null : _compressSelected,
               ),
               IconButton(
                 tooltip: 'Delete',

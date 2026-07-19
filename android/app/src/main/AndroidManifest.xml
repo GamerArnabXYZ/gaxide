@@ -33,6 +33,20 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- v2.1: lets other apps' "Open with" menu offer GAX IDE for text/code files -->
+            <intent-filter android:label="Open in GAX IDE">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content" android:mimeType="text/*"/>
+                <data android:scheme="file" android:mimeType="text/*"/>
+            </intent-filter>
+            <!-- v2.1: lets other apps' "Share" menu send text/code content to GAX IDE -->
+            <intent-filter android:label="Share to GAX IDE">
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/*"/>
+            </intent-filter>
         </activity>
         <meta-data
             android:name="flutterEmbedding"

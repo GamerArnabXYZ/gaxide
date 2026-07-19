@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import '../services/clipboard_controller.dart';
 import '../services/file_service.dart';
 import '../services/prefs_service.dart';
 import '../widgets/file_browser_view.dart';
+import 'editor_screen.dart';
 import 'settings_screen.dart';
 
 /// Home screen — hosts three independent tabs, each a self-contained
@@ -37,6 +41,7 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
   String _tab2Label = 'SD Card';
 
   bool _tabsLoading = true;
+  StreamSubscription? _intentSub;
 
   @override
   void initState() {
@@ -51,10 +56,41 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
       }
     });
     _loadTabConfig();
+    _initSharingIntent();
+  }
+
+  /// Handles files opened via "Open with GAX IDE" or shared via "Share"
+  /// from another app — both while GAX IDE is already running and on a
+  /// cold start.
+  void _initSharingIntent() {
+    _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen(
+      _handleSharedFiles,
+      onError: (_) {},
+    );
+    ReceiveSharingIntent.instance.getInitialMedia().then(_handleSharedFiles);
+  }
+
+  Future<void> _handleSharedFiles(List<SharedMediaFile> files) async {
+    if (files.isEmpty) return;
+    final file = files.first;
+    try {
+      final content = await File(file.path).readAsString();
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => EditorScreen(filePath: file.path, initialContent: content)),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Could not open shared file: $e')));
+      }
+    }
+    ReceiveSharingIntent.instance.reset();
   }
 
   @override
   void dispose() {
+    _intentSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
