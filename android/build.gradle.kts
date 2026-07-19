@@ -16,6 +16,28 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// Some plugins (e.g. receive_sharing_intent) ship their own build.gradle
+// without pinning a JVM target, so their Kotlin compile task silently picks
+// up whatever JDK is installed (17 on current CI images) while javac stays
+// on its plugin-default 1.8/11 — causing a target-mismatch build failure.
+// Force every subproject's javac + kotlinc onto the SAME Java 17 target so
+// this can never happen again, no matter which plugin is added later.
+subprojects {
+    afterEvaluate {
+        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { android ->
+            android.compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_17
+                targetCompatibility = JavaVersion.VERSION_17
+            }
+        }
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class.java).configureEach {
+            kotlinOptions {
+                jvmTarget = JavaVersion.VERSION_17.toString()
+            }
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

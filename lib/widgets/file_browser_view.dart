@@ -204,7 +204,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
       _showHidden = prefs.showHiddenFiles;
       _confirmBeforeDelete = prefs.confirmBeforeDelete;
     });
-    _loadDirectory(_currentPath);
+    if (!(widget.isWorkplaceTab && _atShortcutsList)) {
+      _loadDirectory(_currentPath);
+    }
   }
 
   Future<void> _loadDirectory(String path) async {

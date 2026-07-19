@@ -117,7 +117,7 @@ class _EditorScreenState extends State<EditorScreen> {
     final scheme = Theme.of(context).colorScheme;
     return PopScope(
       canPop: !_isDirty,
-      onPopInvoked: (didPop) async {
+      onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         if (await _confirmDiscardIfDirty() && mounted) {
           Navigator.pop(context);

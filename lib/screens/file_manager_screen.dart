@@ -137,7 +137,7 @@ class _FileManagerScreenState extends State<FileManagerScreen> with SingleTicker
 
     return PopScope(
       canPop: _activeKey.currentState?.canPopFreely() ?? true,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         _activeKey.currentState?.handleBackPress();
       },
