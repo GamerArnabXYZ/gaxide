@@ -24,13 +24,13 @@ dependencies:
 
   # Raw filesystem access for the built-in File Manager
   permission_handler: ^11.3.1
-  path_provider: ^2.1.4
+  path_provider: ^2.0.15
 
   # Zip/unzip (ZArchiver-style archive support)
   archive: ^3.6.1
 
   # Hand off non-code files (PDF, video, docs, APK) to the system's own app
-  open_filex: ^3.4.0
+  open_filex: ^4.7.0
 
   # Lets other apps' "Open with" / "Share" menus offer GAX IDE
   receive_sharing_intent: ^1.8.0
