@@ -6,6 +6,38 @@ import 'package:archive/archive.dart';
 /// bytes) rather than newer convenience helpers, so it stays correct
 /// across package versions.
 class ArchiveService {
+  /// Decodes [zipPath] into an in-memory [Archive] WITHOUT writing anything
+  /// to disk — powers the ZArchiver-style "browse a zip before extracting"
+  /// viewer. Safe to call on large archives since only the central
+  /// directory + requested entry bytes are ever materialized in memory.
+  Future<Archive> decodeZip(String zipPath) async {
+    final bytes = await File(zipPath).readAsBytes();
+    return ZipDecoder().decodeBytes(bytes);
+  }
+
+  /// Extracts ONE already-decoded [file] straight into [destDir],
+  /// flattening its path down to just the base file name. Used by the
+  /// in-zip viewer's "Extract This File" action so a single file can be
+  /// pulled out without extracting the whole archive. Auto-renames on a
+  /// name collision (e.g. "notes (1).txt").
+  Future<String> extractSingleFile(ArchiveFile file, String destDir) async {
+    final name = file.name.split('/').last;
+    var outPath = '$destDir/$name';
+    var counter = 1;
+    while (await File(outPath).exists()) {
+      final dot = name.lastIndexOf('.');
+      final base = dot == -1 ? name : name.substring(0, dot);
+      final ext = dot == -1 ? '' : name.substring(dot);
+      outPath = '$destDir/$base ($counter)$ext';
+      counter++;
+    }
+    final data = file.content as List<int>;
+    final outFile = File(outPath);
+    await outFile.create(recursive: true);
+    await outFile.writeAsBytes(data);
+    return outPath;
+  }
+
   /// Extracts [zipPath] into a sibling folder with the same name as the
   /// zip (minus its extension) — e.g. `project.zip` -> `project/`.
   /// Returns the path of the created folder.

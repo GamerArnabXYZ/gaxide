@@ -33,6 +33,7 @@ class CodeEditorView extends StatefulWidget {
   final EditorLanguage currentLanguage;
   final ValueChanged<EditorLanguage> onLanguageChanged;
   final UndoHistoryController? undoController;
+  final bool readOnly;
 
   const CodeEditorView({
     super.key,
@@ -40,6 +41,7 @@ class CodeEditorView extends StatefulWidget {
     required this.currentLanguage,
     required this.onLanguageChanged,
     this.undoController,
+    this.readOnly = false,
   });
 
   @override
@@ -159,9 +161,11 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                     items: EditorLanguage.values
                         .map((lang) => DropdownMenuItem(value: lang, child: Text(lang.label)))
                         .toList(),
-                    onChanged: (lang) {
-                      if (lang != null) widget.onLanguageChanged(lang);
-                    },
+                    onChanged: widget.readOnly
+                        ? null
+                        : (lang) {
+                            if (lang != null) widget.onLanguageChanged(lang);
+                          },
                   ),
                 ),
               ],
@@ -217,6 +221,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                               controller: widget.controller,
                               undoController: widget.undoController,
                               maxLines: null,
+                              readOnly: widget.readOnly,
                               keyboardType: TextInputType.multiline,
                               textInputAction: TextInputAction.newline,
                               autocorrect: false,

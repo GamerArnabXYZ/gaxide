@@ -13,6 +13,7 @@ import '../widgets/file_info_dialog.dart';
 import '../widgets/repo_push_dialog.dart';
 import '../screens/editor_screen.dart';
 import '../screens/image_viewer_screen.dart';
+import '../screens/archive_viewer_screen.dart';
 
 /// One storage tab's worth of file browsing — its own root, its own
 /// navigation/search/sort/selection state. The parent (FileManagerScreen)
@@ -406,15 +407,24 @@ class FileBrowserViewState extends State<FileBrowserView> {
     final ext = entry.extension;
 
     if (ext == 'zip') {
-      await _confirmExtract(entry);
+      final extracted = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => ArchiveViewerScreen(zipPath: entry.path)),
+      );
+      if (extracted == true && mounted) _loadDirectory(_currentPath);
       return;
     }
 
     if (_imageExtensions.contains(ext)) {
-      await Navigator.push(
+      final images = _visibleEntries.where((e) => !e.isDirectory && _imageExtensions.contains(e.extension)).toList();
+      final startIndex = images.indexWhere((e) => e.path == entry.path);
+      final changed = await Navigator.push<bool>(
         context,
-        MaterialPageRoute(builder: (_) => ImageViewerScreen(filePath: entry.path)),
+        MaterialPageRoute(
+          builder: (_) => ImageViewerScreen(images: images, initialIndex: startIndex < 0 ? 0 : startIndex),
+        ),
       );
+      if (changed == true && mounted) _loadDirectory(_currentPath);
       return;
     }
 
@@ -445,21 +455,6 @@ class FileBrowserViewState extends State<FileBrowserView> {
   }
 
   // ---------------- Archive: extract / compress ----------------
-
-  Future<void> _confirmExtract(FileEntry entry) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Extract Archive?'),
-        content: Text('Extract "${entry.name}" into this folder?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Extract')),
-        ],
-      ),
-    );
-    if (confirmed == true) await _extractZip(entry);
-  }
 
   Future<void> _extractZip(FileEntry entry) async {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⏳ Extracting...')));
