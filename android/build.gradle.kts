@@ -23,7 +23,7 @@ subprojects {
 // Force every subproject's javac + kotlinc onto the SAME Java 17 target so
 // this can never happen again, no matter which plugin is added later.
 subprojects {
-    afterEvaluate {
+    val configureJvmTarget = {
         extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { android ->
             android.compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_17
@@ -35,6 +35,14 @@ subprojects {
                 jvmTarget = JavaVersion.VERSION_17.toString()
             }
         }
+    }
+    // evaluationDependsOn(":app") above can force :app (or other modules in
+    // the dependency chain) to already be evaluated by the time this runs —
+    // calling afterEvaluate on an already-evaluated project throws. Guard both cases.
+    if (project.state.executed) {
+        configureJvmTarget()
+    } else {
+        afterEvaluate { configureJvmTarget() }
     }
 }
 
