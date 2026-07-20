@@ -402,6 +402,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
   // ---------------- Open (smart dispatch by file type) ----------------
 
   static const _imageExtensions = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'};
+  // Files above this size get a "this may take a while" confirmation
+  // before opening in the editor, so a big tap isn't a surprise freeze.
+  static const int _largeFileWarningBytes = 100 * 1024; // 100 KB
 
   Future<void> _openInEditor(FileEntry entry) async {
     final ext = entry.extension;
@@ -432,6 +435,23 @@ class FileBrowserViewState extends State<FileBrowserView> {
     // falls back to the system's own app via OpenFilex.
     try {
       final content = await _fileService.readFileAsString(entry.path);
+      if (!mounted) return;
+
+      if (entry.sizeBytes > _largeFileWarningBytes) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Large File'),
+            content: Text('This is a huge file (${entry.readableSize}). This may take long to load.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('OK')),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+
       if (!mounted) return;
       await Navigator.push(
         context,

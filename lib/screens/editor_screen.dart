@@ -23,6 +23,14 @@ class EditorScreen extends StatefulWidget {
 }
 
 class _EditorScreenState extends State<EditorScreen> {
+  // Above this many characters, syntax highlighting is skipped entirely.
+  // The `highlight` package parses the WHOLE file synchronously on the UI
+  // thread, and that cost grows fast enough that a large file (500KB+)
+  // can freeze the app for minutes and eventually crash it outright. A
+  // plain monospace TextField has none of that cost, so big files still
+  // open instantly — just without color-coding.
+  static const int _highlightSizeLimit = 150000; // ~150 KB
+
   final _fileService = FileService();
   final _prefsService = PrefsService();
 
@@ -38,6 +46,7 @@ class _EditorScreenState extends State<EditorScreen> {
   late EditorLanguage _currentLanguage;
   bool _isDirty = false;
   bool _isSaving = false;
+  bool _highlightingDisabled = false;
 
   List<QuickAction> _quickActions = QuickActionX.defaultToolbar;
 
@@ -47,15 +56,29 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _currentLanguage = EditorLanguageX.fromExtension(_fileName);
+    _highlightingDisabled = widget.initialContent.length > _highlightSizeLimit;
     _undoController = UndoHistoryController();
     _loadQuickToolbar();
     WidgetsBinding.instance.addPostFrameCallback((_) => _initController());
   }
 
   void _initController() {
-    final controller = CodeController(text: widget.initialContent, language: _currentLanguage.mode);
+    final controller = CodeController(
+      text: widget.initialContent,
+      language: _highlightingDisabled ? null : _currentLanguage.mode,
+    );
     controller.addListener(_markDirty);
-    if (mounted) setState(() => _codeController = controller);
+    if (mounted) {
+      setState(() => _codeController = controller);
+      if (_highlightingDisabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('📄 Large file — syntax highlighting turned off to keep things smooth.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadQuickToolbar() async {
@@ -83,7 +106,7 @@ class _EditorScreenState extends State<EditorScreen> {
     oldController.removeListener(_markDirty);
     setState(() {
       _currentLanguage = lang;
-      _codeController = CodeController(text: text, language: lang.mode);
+      _codeController = CodeController(text: text, language: _highlightingDisabled ? null : lang.mode);
       _codeController!.addListener(_markDirty);
       _undoController = UndoHistoryController();
     });
@@ -167,6 +190,28 @@ class _EditorScreenState extends State<EditorScreen> {
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     children: [
+                      if (_highlightingDisabled)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: scheme.tertiaryContainer,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.speed_rounded, size: 16, color: scheme.onTertiaryContainer),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Large file — syntax highlighting is off for smooth performance.',
+                                  style: TextStyle(fontSize: 12, color: scheme.onTertiaryContainer),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       Expanded(
                         child: CodeEditorView(
                           controller: _codeController!,

@@ -356,6 +356,8 @@ class _ArchiveImagePreviewScreen extends StatelessWidget {
 /// zipped up. Reuses the same CodeEditorView as the real editor (in
 /// readOnly mode) so highlighting looks identical.
 class _ArchiveTextPreviewScreen extends StatelessWidget {
+  static const int _highlightSizeLimit = 150000; // ~150 KB — see editor_screen.dart for why
+
   final String name;
   final String content;
   const _ArchiveTextPreviewScreen({required this.name, required this.content});
@@ -363,6 +365,7 @@ class _ArchiveTextPreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lang = EditorLanguageX.fromExtension(name);
+    final tooLargeToHighlight = content.length > _highlightSizeLimit;
     return Scaffold(
       appBar: AppBar(
         title: Text(name, overflow: TextOverflow.ellipsis),
@@ -378,11 +381,39 @@ class _ArchiveTextPreviewScreen extends StatelessWidget {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: CodeEditorView(
-            controller: CodeController(text: content, language: lang.mode),
-            currentLanguage: lang,
-            onLanguageChanged: (_) {},
-            readOnly: true,
+          child: Column(
+            children: [
+              if (tooLargeToHighlight)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.speed_rounded, size: 16, color: Theme.of(context).colorScheme.onTertiaryContainer),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Large file — syntax highlighting is off for smooth performance.',
+                          style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onTertiaryContainer),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Expanded(
+                child: CodeEditorView(
+                  controller: CodeController(text: content, language: tooLargeToHighlight ? null : lang.mode),
+                  currentLanguage: lang,
+                  onLanguageChanged: (_) {},
+                  readOnly: true,
+                ),
+              ),
+            ],
           ),
         ),
       ),
