@@ -26,7 +26,14 @@ class _EditorScreenState extends State<EditorScreen> {
   final _fileService = FileService();
   final _prefsService = PrefsService();
 
-  late CodeController _codeController;
+  // Nullable and built one frame late on purpose: constructing a
+  // CodeController runs a full syntax-highlight pass over the entire file
+  // right away. For large files that's slow enough to make the
+  // file-list-to-editor transition look frozen. Deferring it to right
+  // after the first frame lets a lightweight loading spinner paint
+  // immediately instead, so opening a big file *feels* instant even
+  // though the highlighting work itself still takes the same time.
+  CodeController? _codeController;
   late UndoHistoryController _undoController;
   late EditorLanguage _currentLanguage;
   bool _isDirty = false;
@@ -40,10 +47,15 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _currentLanguage = EditorLanguageX.fromExtension(_fileName);
-    _codeController = CodeController(text: widget.initialContent, language: _currentLanguage.mode);
-    _codeController.addListener(_markDirty);
     _undoController = UndoHistoryController();
     _loadQuickToolbar();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initController());
+  }
+
+  void _initController() {
+    final controller = CodeController(text: widget.initialContent, language: _currentLanguage.mode);
+    controller.addListener(_markDirty);
+    if (mounted) setState(() => _codeController = controller);
   }
 
   Future<void> _loadQuickToolbar() async {
@@ -57,20 +69,22 @@ class _EditorScreenState extends State<EditorScreen> {
 
   @override
   void dispose() {
-    _codeController.dispose();
+    _codeController?.dispose();
     _undoController.dispose();
     super.dispose();
   }
 
   void _onLanguageChanged(EditorLanguage lang) {
-    final text = _codeController.text;
-    final oldController = _codeController;
+    final current = _codeController;
+    if (current == null) return;
+    final text = current.text;
+    final oldController = current;
     final oldUndo = _undoController;
     oldController.removeListener(_markDirty);
     setState(() {
       _currentLanguage = lang;
       _codeController = CodeController(text: text, language: lang.mode);
-      _codeController.addListener(_markDirty);
+      _codeController!.addListener(_markDirty);
       _undoController = UndoHistoryController();
     });
     oldController.dispose();
@@ -78,9 +92,11 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<void> _save() async {
+    final controller = _codeController;
+    if (controller == null) return;
     setState(() => _isSaving = true);
     try {
-      await _fileService.saveToPath(widget.filePath, _codeController.text);
+      await _fileService.saveToPath(widget.filePath, controller.text);
       if (!mounted) return;
       setState(() {
         _isDirty = false;
@@ -140,32 +156,34 @@ class _EditorScreenState extends State<EditorScreen> {
               icon: _isSaving
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.save_rounded),
-              onPressed: _isSaving ? null : _save,
+              onPressed: (_isSaving || _codeController == null) ? null : _save,
             ),
           ],
         ),
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                Expanded(
-                  child: CodeEditorView(
-                    controller: _codeController,
-                    currentLanguage: _currentLanguage,
-                    onLanguageChanged: _onLanguageChanged,
-                    undoController: _undoController,
+          child: _codeController == null
+              ? const Center(child: CircularProgressIndicator())
+              : Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: CodeEditorView(
+                          controller: _codeController!,
+                          currentLanguage: _currentLanguage,
+                          onLanguageChanged: _onLanguageChanged,
+                          undoController: _undoController,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      QuickToolbar(
+                        controller: _codeController!,
+                        undoController: _undoController,
+                        actions: _quickActions,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                QuickToolbar(
-                  controller: _codeController,
-                  undoController: _undoController,
-                  actions: _quickActions,
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );

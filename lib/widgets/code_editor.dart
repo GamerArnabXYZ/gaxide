@@ -14,14 +14,21 @@ import '../services/prefs_service.dart';
 /// buildTextSpan + the CodeTheme ancestor — nothing to do with CodeField)
 /// next to a manually-drawn number column.
 ///
-/// The gutter is a single multi-line Text widget ("1\n2\n3...") using the
-/// EXACT SAME TextStyle + StrutStyle as the code TextField — not a column
-/// of fixed-height boxes — so both sides always agree on line height.
+/// The gutter and the code column share ONE vertical ScrollController —
+/// they are two children of the SAME scrollable Row, not two separately
+/// scrolled widgets kept in sync by a listener. An earlier version tried
+/// mirroring one controller's offset onto a second, independent one; any
+/// tiny per-line height mismatch between the two (font-metric rounding,
+/// float drift) compounds over hundreds of lines until the gutter's own
+/// max-scroll-extent is reached before the code column's, so the numbers
+/// visibly stop climbing while the code keeps scrolling. Sharing a single
+/// controller makes that class of bug structurally impossible — there is
+/// only one scroll position, so both sides always move by construction.
 ///
-/// Lines never soft-wrap (long lines scroll sideways instead), so every
-/// logical line is guaranteed to be exactly one row tall in both columns.
-/// The two columns scroll together via an explicit listener that mirrors
-/// the code column's offset onto the (touch-disabled) gutter column.
+/// Only vertical scrolling is shared; horizontal scrolling (for long
+/// lines, which never soft-wrap) stays local to the code column only, via
+/// its own nested horizontal scroll view, so the numbers don't slide
+/// sideways with the code.
 ///
 /// Pinch-to-zoom changes the font size (persisted across sessions) using a
 /// raw `Listener` — NOT a GestureDetector/InteractiveViewer — since those
@@ -58,8 +65,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
   final _prefsService = PrefsService();
   double _fontSize = 14;
 
-  final _codeScrollController = ScrollController();
-  final _gutterScrollController = ScrollController();
+  final _verticalController = ScrollController();
 
   final Map<int, Offset> _activePointers = {};
   double _pinchStartDistance = 0;
@@ -72,21 +78,12 @@ class _CodeEditorViewState extends State<CodeEditorView> {
   @override
   void initState() {
     super.initState();
-    _codeScrollController.addListener(_mirrorScrollToGutter);
     _loadFontSize();
   }
 
   Future<void> _loadFontSize() async {
     final size = await _prefsService.loadFontSize();
     if (mounted) setState(() => _fontSize = size);
-  }
-
-  void _mirrorScrollToGutter() {
-    if (!_gutterScrollController.hasClients) return;
-    final target = _codeScrollController.offset;
-    final maxExtent = _gutterScrollController.position.maxScrollExtent;
-    final minExtent = _gutterScrollController.position.minScrollExtent;
-    _gutterScrollController.jumpTo(target.clamp(minExtent, maxExtent));
   }
 
   void _onPointerDown(PointerDownEvent event) {
@@ -122,9 +119,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
 
   @override
   void dispose() {
-    _codeScrollController.removeListener(_mirrorScrollToGutter);
-    _codeScrollController.dispose();
-    _gutterScrollController.dispose();
+    _verticalController.dispose();
     super.dispose();
   }
 
@@ -179,79 +174,68 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                 onPointerMove: _onPointerMove,
                 onPointerUp: _onPointerUp,
                 onPointerCancel: _onPointerUp,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: _gutterWidth,
-                      // Virtualized: only the numbers actually on screen
-                      // are ever built. The old approach rendered every
-                      // line number as ONE giant Text widget, which on
-                      // large files (1000+ lines) was slow to lay out on
-                      // open AND hit a real rendering ceiling that
-                      // silently truncated numbers past a certain height
-                      // — while the code TextField beside it kept
-                      // scrolling fine. ListView.builder has neither
-                      // problem.
-                      child: AnimatedBuilder(
-                        animation: widget.controller,
-                        builder: (context, _) {
-                          final lineCount = '\n'.allMatches(widget.controller.text).length + 1;
-                          final lineHeight = _fontSize * _lineHeightMultiplier;
-                          return ListView.builder(
-                            controller: _gutterScrollController,
-                            physics: const NeverScrollableScrollPhysics(),
-                            padding: const EdgeInsets.only(top: 8, right: 10),
-                            itemExtent: lineHeight,
-                            itemCount: lineCount,
-                            itemBuilder: (context, index) => Container(
-                              alignment: Alignment.centerRight,
-                              child: Text(
-                                '${index + 1}',
-                                textAlign: TextAlign.right,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: _fontSize,
-                                  color: scheme.onSurfaceVariant.withOpacity(0.5),
-                                ),
-                              ),
+                child: SingleChildScrollView(
+                  controller: _verticalController,
+                  padding: const EdgeInsets.only(top: 8, bottom: 24),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          width: _gutterWidth,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 10),
+                            child: AnimatedBuilder(
+                              animation: widget.controller,
+                              builder: (context, _) {
+                                final lineCount = '\n'.allMatches(widget.controller.text).length + 1;
+                                final numbers = List.generate(lineCount, (i) => '${i + 1}').join('\n');
+                                return Text(
+                                  numbers,
+                                  textAlign: TextAlign.right,
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: _fontSize,
+                                    height: _lineHeightMultiplier,
+                                    color: scheme.onSurfaceVariant.withOpacity(0.5),
+                                  ),
+                                  strutStyle: _strut,
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                    Container(width: 1, color: scheme.outlineVariant.withOpacity(0.3)),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: _codeScrollController,
-                        padding: const EdgeInsets.only(top: 8, left: 8, bottom: 24),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: _codeMinWidth,
-                            child: TextField(
-                              controller: widget.controller,
-                              undoController: widget.undoController,
-                              maxLines: null,
-                              readOnly: widget.readOnly,
-                              keyboardType: TextInputType.multiline,
-                              textInputAction: TextInputAction.newline,
-                              autocorrect: false,
-                              enableSuggestions: false,
-                              style: _codeStyle,
-                              strutStyle: _strut,
-                              cursorColor: scheme.primary,
-                              decoration: const InputDecoration(
-                                border: InputBorder.none,
-                                isDense: true,
-                                contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        Container(width: 1, color: scheme.outlineVariant.withOpacity(0.3)),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.only(left: 8),
+                            child: SizedBox(
+                              width: _codeMinWidth,
+                              child: TextField(
+                                controller: widget.controller,
+                                undoController: widget.undoController,
+                                maxLines: null,
+                                readOnly: widget.readOnly,
+                                keyboardType: TextInputType.multiline,
+                                textInputAction: TextInputAction.newline,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                style: _codeStyle,
+                                strutStyle: _strut,
+                                cursorColor: scheme.primary,
+                                decoration: const InputDecoration(
+                                  border: InputBorder.none,
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
