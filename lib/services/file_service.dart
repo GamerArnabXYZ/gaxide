@@ -140,13 +140,42 @@ class FileService {
   }
 
   Future<void> copyEntry(String sourcePath, String destDir, bool isDirectory) async {
-    final name = sourcePath.split('/').last;
-    final destPath = '$destDir/$name';
+    final destPath = await _resolveCopyDestPath(sourcePath, destDir, isDirectory);
+    await _performCopy(sourcePath, destPath, isDirectory);
+  }
+
+  Future<void> _performCopy(String sourcePath, String destPath, bool isDirectory) async {
     if (isDirectory) {
       await _copyDirectoryRecursive(sourcePath, destPath);
     } else {
       await File(sourcePath).copy(destPath);
     }
+  }
+
+  /// Resolves where a copy/move should actually land. If nothing exists
+  /// at the natural destination, uses it as-is. Otherwise — whether
+  /// that's because the item is being pasted back into its own folder,
+  /// or because a *different* file/folder there just happens to share
+  /// the name — auto-appends "(copy)", then "(copy 2)", "(copy 3)"... so
+  /// pasting can never silently overwrite or corrupt an existing file.
+  Future<String> _resolveCopyDestPath(String sourcePath, String destDir, bool isDirectory) async {
+    final name = sourcePath.split('/').last;
+    final directPath = '$destDir/$name';
+    if (!await File(directPath).exists() && !await Directory(directPath).exists()) {
+      return directPath;
+    }
+
+    final hasExt = !isDirectory && name.contains('.') && !name.startsWith('.');
+    final base = hasExt ? name.substring(0, name.lastIndexOf('.')) : name;
+    final ext = hasExt ? name.substring(name.lastIndexOf('.')) : '';
+
+    var candidate = '$destDir/$base (copy)$ext';
+    var counter = 2;
+    while (await File(candidate).exists() || await Directory(candidate).exists()) {
+      candidate = '$destDir/$base (copy $counter)$ext';
+      counter++;
+    }
+    return candidate;
   }
 
   Future<void> _copyDirectoryRecursive(String src, String dest) async {
@@ -163,7 +192,13 @@ class FileService {
   }
 
   Future<void> moveEntry(String sourcePath, String destDir, bool isDirectory) async {
-    await copyEntry(sourcePath, destDir, isDirectory);
+    final name = sourcePath.split('/').last;
+    // Pasting a cut item back into the exact folder it came from is a
+    // no-op — NOT "copy onto itself then delete the original", which is
+    // what this used to do and could destroy the file entirely.
+    if ('$destDir/$name' == sourcePath) return;
+    final destPath = await _resolveCopyDestPath(sourcePath, destDir, isDirectory);
+    await _performCopy(sourcePath, destPath, isDirectory);
     await delete(sourcePath, isDirectory);
   }
 

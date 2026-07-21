@@ -368,24 +368,36 @@ class _ArchiveTextPreviewScreen extends StatefulWidget {
 class _ArchiveTextPreviewScreenState extends State<_ArchiveTextPreviewScreen> {
   final _prefsService = PrefsService();
   int? _highlightSizeLimit; // null until loaded from Settings
+  CodeController? _codeController;
+  late final EditorLanguage _lang = EditorLanguageX.fromExtension(widget.name);
 
   @override
   void initState() {
     super.initState();
     _prefsService.loadPerformancePrefs().then((p) {
-      if (mounted) setState(() => _highlightSizeLimit = p.highlightLimitKb * 1024);
+      if (!mounted) return;
+      final limit = p.highlightLimitKb * 1024;
+      final tooLarge = widget.content.length > limit;
+      setState(() {
+        _highlightSizeLimit = limit;
+        _codeController = CodeController(text: widget.content, language: tooLarge ? null : _lang.mode);
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _codeController?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final name = widget.name;
-    final content = widget.content;
-    if (_highlightSizeLimit == null) {
+    if (_highlightSizeLimit == null || _codeController == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    final lang = EditorLanguageX.fromExtension(name);
-    final tooLargeToHighlight = content.length > _highlightSizeLimit!;
+    final tooLargeToHighlight = widget.content.length > _highlightSizeLimit!;
     return Scaffold(
       appBar: AppBar(
         title: Text(name, overflow: TextOverflow.ellipsis),
@@ -427,8 +439,8 @@ class _ArchiveTextPreviewScreenState extends State<_ArchiveTextPreviewScreen> {
                 ),
               Expanded(
                 child: CodeEditorView(
-                  controller: CodeController(text: content, language: tooLargeToHighlight ? null : lang.mode),
-                  currentLanguage: lang,
+                  controller: _codeController!,
+                  currentLanguage: _lang,
                   onLanguageChanged: (_) {},
                   readOnly: true,
                 ),

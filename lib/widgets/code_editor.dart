@@ -86,6 +86,13 @@ class _CodeEditorViewState extends State<CodeEditorView> {
   final _findFocusNode = FocusNode();
   List<int> _matches = [];
   int _currentMatch = -1;
+  // The text _matches was computed against. Lets us tell "the user edited
+  // the document while Find was open" (matches are now stale — offsets no
+  // longer point at the right characters, or may even exceed the new,
+  // shorter text's length) apart from "our own code just moved the
+  // selection to highlight a match" (which also fires the controller's
+  // listeners, but the text itself didn't change).
+  String? _lastSearchedText;
 
   String get _editorFontFamily => GoogleFonts.getFont(ThemeController.instance.editorFont).fontFamily!;
 
@@ -106,6 +113,27 @@ class _CodeEditorViewState extends State<CodeEditorView> {
     super.initState();
     _loadFontSize();
     _findController.addListener(_runSearch);
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant CodeEditorView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  /// Fires on every controller change — including ones WE cause by
+  /// setting `.selection` to highlight a match. Only re-searches when the
+  /// actual TEXT differs from what was last searched, so this can't loop
+  /// forever (selection-only changes leave the text, and therefore this
+  /// check, unchanged) and so a plain cursor move never nukes the results.
+  void _onControllerChanged() {
+    if (!_showFind || _findController.text.isEmpty) return;
+    if (widget.controller.text == _lastSearchedText) return;
+    _runSearch();
   }
 
   Future<void> _loadFontSize() async {
@@ -158,6 +186,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
 
   void _runSearch() {
     final query = _findController.text;
+    _lastSearchedText = widget.controller.text;
     if (query.isEmpty) {
       setState(() {
         _matches = [];
@@ -187,6 +216,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
     final wrapped = index % _matches.length;
     final start = _matches[wrapped];
     final len = _findController.text.length;
+    if (start < 0 || start + len > widget.controller.text.length) return; // stale offset — bail safely
     widget.controller.selection = TextSelection(baseOffset: start, extentOffset: start + len);
     _scrollToCharOffset(start);
     setState(() => _currentMatch = wrapped);
@@ -217,6 +247,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
     final query = _findController.text;
     final replacement = _replaceController.text;
     final text = widget.controller.text;
+    if (start < 0 || start + query.length > text.length) return; // stale offset — bail safely
     final newText = text.replaceRange(start, start + query.length, replacement);
     widget.controller.value = TextEditingValue(
       text: newText,
@@ -247,6 +278,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
     _verticalController.dispose();
     _findController.dispose();
     _replaceController.dispose();

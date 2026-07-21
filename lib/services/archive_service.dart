@@ -68,20 +68,23 @@ class ArchiveService {
   }
 
   /// Compresses a single folder into a `<folderName>.zip` sitting next to
-  /// it (in its parent directory).
+  /// it (in its parent directory). Auto-increments the name if that zip
+  /// already exists, rather than silently overwriting it.
   Future<String> compressFolder(String folderPath) async {
     final name = folderPath.split('/').last;
     final parentDir = folderPath.substring(0, folderPath.lastIndexOf('/'));
-    final outputZipPath = '$parentDir/$name.zip';
+    final outputZipPath = await _uniqueZipPath(parentDir, name);
     await _writeZip({folderPath: name}, outputZipPath);
     return outputZipPath;
   }
 
   /// Compresses a single file into a `<fileName>.zip` sitting next to it.
+  /// Auto-increments the name if that zip already exists, rather than
+  /// silently overwriting it.
   Future<String> compressFile(String filePath) async {
     final name = filePath.split('/').last;
     final parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
-    final outputZipPath = '$parentDir/$name.zip';
+    final outputZipPath = await _uniqueZipPath(parentDir, name);
     await _writeZip({filePath: name}, outputZipPath);
     return outputZipPath;
   }
@@ -92,13 +95,20 @@ class ArchiveService {
     final entries = <String, String>{
       for (final path in paths) path: path.split('/').last,
     };
-    var outputZipPath = '$destinationDir/Archive.zip';
+    final outputZipPath = await _uniqueZipPath(destinationDir, 'Archive');
+    await _writeZip(entries, outputZipPath);
+    return outputZipPath;
+  }
+
+  /// Resolves a `.zip` path that doesn't collide with an existing file —
+  /// `name.zip`, then `name (1).zip`, `name (2).zip`, etc.
+  Future<String> _uniqueZipPath(String destDir, String baseName) async {
+    var outputZipPath = '$destDir/$baseName.zip';
     var counter = 1;
     while (await File(outputZipPath).exists()) {
-      outputZipPath = '$destinationDir/Archive ($counter).zip';
+      outputZipPath = '$destDir/$baseName ($counter).zip';
       counter++;
     }
-    await _writeZip(entries, outputZipPath);
     return outputZipPath;
   }
 
