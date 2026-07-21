@@ -4,9 +4,12 @@ import '../models/quick_action.dart';
 import '../models/sort_mode.dart';
 import '../services/file_service.dart';
 import '../services/prefs_service.dart';
+import '../services/theme_controller.dart';
+import '../utils/app_theme.dart';
 
 /// One settings screen for everything — GitHub access, per-tab storage
-/// paths, and general file manager behavior (ZArchiver-style preferences).
+/// paths, general file manager behavior, appearance (theme/fonts), and
+/// performance/safety thresholds (all ZArchiver-style preferences).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -24,10 +27,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _tab2LabelController = TextEditingController();
   final _tab2PathController = TextEditingController();
   final _quickToolbarController = TextEditingController();
+  final _ignoreDirsController = TextEditingController();
+  final _largeFileWarningController = TextEditingController();
+  final _highlightLimitController = TextEditingController();
 
   bool _showHidden = false;
   bool _confirmDelete = true;
   SortMode _defaultSort = SortMode.nameAsc;
+
+  AppThemeOption _themeOption = AppThemeOption.purple;
+  String _uiFont = AppFonts.defaultUiFont;
+  String _editorFont = AppFonts.defaultEditorFont;
 
   bool _loading = true;
   String? _detectedSdPath;
@@ -43,6 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final tabs = await _prefsService.loadTabSettings();
     final fmPrefs = await _prefsService.loadFileManagerPrefs();
     final quickActions = await _prefsService.loadQuickToolbar();
+    final themePrefs = await _prefsService.loadThemePrefs();
+    final perfPrefs = await _prefsService.loadPerformancePrefs();
     _detectedSdPath = await _fileService.detectSecondaryStoragePath();
 
     if (!mounted) return;
@@ -52,11 +64,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _tab2LabelController.text = tabs.tab2Label;
     _tab2PathController.text = tabs.tab2Path;
     _quickToolbarController.text = QuickActionX.toInputString(quickActions);
+    _ignoreDirsController.text = perfPrefs.ignoreDirs.join(' ');
+    _largeFileWarningController.text = perfPrefs.largeFileWarningKb.toString();
+    _highlightLimitController.text = perfPrefs.highlightLimitKb.toString();
 
     setState(() {
       _showHidden = fmPrefs.showHiddenFiles;
       _confirmDelete = fmPrefs.confirmBeforeDelete;
       _defaultSort = SortMode.values[fmPrefs.defaultSortIndex];
+      _themeOption = themePrefs.themeOption;
+      _uiFont = themePrefs.uiFont;
+      _editorFont = themePrefs.editorFont;
       _loading = false;
     });
   }
@@ -69,6 +87,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _tab2LabelController.dispose();
     _tab2PathController.dispose();
     _quickToolbarController.dispose();
+    _ignoreDirsController.dispose();
+    _largeFileWarningController.dispose();
+    _highlightLimitController.dispose();
     super.dispose();
   }
 
@@ -92,6 +113,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return _prefsService.saveQuickToolbar(parsed);
   }
 
+  Future<void> _persistTheme(AppThemeOption option) async {
+    setState(() => _themeOption = option);
+    await ThemeController.instance.setThemeOption(option);
+  }
+
+  Future<void> _persistUiFont(String font) async {
+    setState(() => _uiFont = font);
+    await ThemeController.instance.setUiFont(font);
+  }
+
+  Future<void> _persistEditorFont(String font) async {
+    setState(() => _editorFont = font);
+    await ThemeController.instance.setEditorFont(font);
+  }
+
+  Future<void> _persistPerformancePrefs([String? _]) {
+    final ignoreDirs =
+        _ignoreDirsController.text.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+    final largeFileKb = int.tryParse(_largeFileWarningController.text.trim()) ?? 100;
+    final highlightKb = int.tryParse(_highlightLimitController.text.trim()) ?? 150;
+    return _prefsService.savePerformancePrefs(PerformancePrefs(
+      ignoreDirs: ignoreDirs.isEmpty ? FileService.ignoredDirNames : ignoreDirs,
+      largeFileWarningKb: largeFileKb < 1 ? 100 : largeFileKb,
+      highlightLimitKb: highlightKb < 1 ? 150 : highlightKb,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -105,6 +153,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(14),
           children: [
+            _sectionHeader('Appearance'),
+            _card(
+              scheme,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<AppThemeOption>(
+                    value: _themeOption,
+                    decoration: const InputDecoration(labelText: 'Theme'),
+                    items: AppThemeOption.values
+                        .map((o) => DropdownMenuItem(value: o, child: Text(o.label)))
+                        .toList(),
+                    onChanged: (o) {
+                      if (o != null) _persistTheme(o);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _uiFont,
+                    decoration: const InputDecoration(labelText: 'UI Font (menus, file names)'),
+                    items: AppFonts.uiFontOptions
+                        .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                        .toList(),
+                    onChanged: (f) {
+                      if (f != null) _persistUiFont(f);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _editorFont,
+                    decoration: const InputDecoration(labelText: 'Editor Font (code)'),
+                    items: AppFonts.editorFontOptions
+                        .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                        .toList(),
+                    onChanged: (f) {
+                      if (f != null) _persistEditorFont(f);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'The editor font is always monospace, so code stays aligned.',
+                    style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                  ),
+                ],
+              ),
+            ),
             _sectionHeader('GitHub'),
             _card(
               scheme,
@@ -230,6 +324,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() => _defaultSort = m);
                       _persistFmPrefs();
                     },
+                  ),
+                ],
+              ),
+            ),
+            _sectionHeader('Performance & Safety'),
+            _card(
+              scheme,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _largeFileWarningController,
+                          keyboardType: TextInputType.number,
+                          onChanged: _persistPerformancePrefs,
+                          decoration: const InputDecoration(labelText: 'Large-file warning (KB)'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _highlightLimitController,
+                          keyboardType: TextInputType.number,
+                          onChanged: _persistPerformancePrefs,
+                          decoration: const InputDecoration(labelText: 'Highlighting limit (KB)'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Files bigger than the first number show a "may take a while" prompt before '
+                    'opening. Files bigger than the second have syntax highlighting turned off '
+                    'automatically so they stay smooth.',
+                    style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                  ),
+                  const Divider(height: 28),
+                  Text('Ignored Folders (GitHub Push)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: scheme.primary)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Type folder names to skip when pushing, separated by spaces.',
+                    style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _ignoreDirsController,
+                    onChanged: _persistPerformancePrefs,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: 'Ignored folder names',
+                      hintText: '.git node_modules build .gradle',
+                      suffixIcon: IconButton(
+                        tooltip: 'Reset to default',
+                        icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                        onPressed: () {
+                          _ignoreDirsController.text = FileService.ignoredDirNames.join(' ');
+                          _persistPerformancePrefs();
+                        },
+                      ),
+                    ),
                   ),
                 ],
               ),

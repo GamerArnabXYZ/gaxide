@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/quick_action.dart';
+import '../utils/app_theme.dart';
+import 'file_service.dart';
 
 class GaxConfig {
   final String token;
@@ -32,6 +34,31 @@ class FileManagerPrefs {
   });
 }
 
+/// Color theme + UI font + editor font, all user-selectable in Settings.
+class ThemePrefs {
+  final AppThemeOption themeOption;
+  final String uiFont;
+  final String editorFont;
+  const ThemePrefs({
+    this.themeOption = AppThemeOption.purple,
+    this.uiFont = AppFonts.defaultUiFont,
+    this.editorFont = AppFonts.defaultEditorFont,
+  });
+}
+
+/// Size-based safety thresholds and the GitHub-push ignore list — all
+/// customizable in Settings instead of hard-coded.
+class PerformancePrefs {
+  final List<String> ignoreDirs;
+  final int largeFileWarningKb;
+  final int highlightLimitKb;
+  const PerformancePrefs({
+    this.ignoreDirs = FileService.ignoredDirNames,
+    this.largeFileWarningKb = 100,
+    this.highlightLimitKb = 150,
+  });
+}
+
 /// All app settings — GitHub token, storage tab config, file manager
 /// behavior, editor font size, and quick toolbar layout — autosaved
 /// locally via shared_preferences.
@@ -47,6 +74,13 @@ class PrefsService {
   static const _kFontSize = 'gax_editor_font_size';
   static const _kQuickToolbar = 'gax_quick_toolbar';
   static const _kWorkplaceShortcuts = 'gax_workplace_shortcuts';
+  static const _kThemeOption = 'gax_theme_option';
+  static const _kUiFont = 'gax_ui_font';
+  static const _kEditorFont = 'gax_editor_font';
+  static const _kIgnoreDirs = 'gax_ignore_dirs';
+  static const _kLargeFileWarningKb = 'gax_large_file_warning_kb';
+  static const _kHighlightLimitKb = 'gax_highlight_limit_kb';
+  static const _kSeededSamplesShortcut = 'gax_seeded_samples_shortcut';
 
   Future<void> saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
@@ -139,5 +173,51 @@ class PrefsService {
   Future<List<String>> loadWorkplaceShortcuts() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getStringList(_kWorkplaceShortcuts) ?? [];
+  }
+
+  Future<void> saveThemePrefs(ThemePrefs p) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kThemeOption, p.themeOption.name);
+    await prefs.setString(_kUiFont, p.uiFont);
+    await prefs.setString(_kEditorFont, p.editorFont);
+  }
+
+  Future<ThemePrefs> loadThemePrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return ThemePrefs(
+      themeOption: AppThemeOptionX.fromName(prefs.getString(_kThemeOption)),
+      uiFont: prefs.getString(_kUiFont) ?? AppFonts.defaultUiFont,
+      editorFont: prefs.getString(_kEditorFont) ?? AppFonts.defaultEditorFont,
+    );
+  }
+
+  Future<void> savePerformancePrefs(PerformancePrefs p) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kIgnoreDirs, p.ignoreDirs);
+    await prefs.setInt(_kLargeFileWarningKb, p.largeFileWarningKb);
+    await prefs.setInt(_kHighlightLimitKb, p.highlightLimitKb);
+  }
+
+  Future<PerformancePrefs> loadPerformancePrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return PerformancePrefs(
+      ignoreDirs: prefs.getStringList(_kIgnoreDirs) ?? FileService.ignoredDirNames,
+      largeFileWarningKb: prefs.getInt(_kLargeFileWarningKb) ?? 100,
+      highlightLimitKb: prefs.getInt(_kHighlightLimitKb) ?? 150,
+    );
+  }
+
+  /// Whether the default "Samples" Workplace shortcut has already been
+  /// seeded once. Only ever seeded on first run — if the user removes it,
+  /// it must NOT come back on the next launch, so this flag is set
+  /// regardless of whether the user keeps or deletes the shortcut.
+  Future<bool> hasSeededSamplesShortcut() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kSeededSamplesShortcut) ?? false;
+  }
+
+  Future<void> setSeededSamplesShortcut() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSeededSamplesShortcut, true);
   }
 }

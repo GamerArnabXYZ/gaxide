@@ -165,7 +165,8 @@ Future<void> showRepoPushDialog(BuildContext context, {required String folderPat
                         progressText = 'Collecting files...';
                       });
 
-                      final files = await fileService.collectFilesForPush(folderPath);
+                      final ignoreDirs = (await prefsService.loadPerformancePrefs()).ignoreDirs;
+                      final files = await fileService.collectFilesForPush(folderPath, ignoreDirs: ignoreDirs);
                       setDialogState(() => progressText = 'Uploading ${files.length} files...');
 
                       final userCommitMsg = commitController.text.trim();

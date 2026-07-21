@@ -7,6 +7,7 @@ import 'package:code_text_field/code_text_field.dart';
 import '../models/archive_entry.dart';
 import '../models/editor_language.dart';
 import '../services/archive_service.dart';
+import '../services/prefs_service.dart';
 import '../widgets/code_editor.dart';
 
 /// Browse a .zip's contents WITHOUT extracting it first — ZArchiver-style.
@@ -355,17 +356,36 @@ class _ArchiveImagePreviewScreen extends StatelessWidget {
 /// Read-only syntax-highlighted preview for a text/code file that's still
 /// zipped up. Reuses the same CodeEditorView as the real editor (in
 /// readOnly mode) so highlighting looks identical.
-class _ArchiveTextPreviewScreen extends StatelessWidget {
-  static const int _highlightSizeLimit = 150000; // ~150 KB — see editor_screen.dart for why
-
+class _ArchiveTextPreviewScreen extends StatefulWidget {
   final String name;
   final String content;
   const _ArchiveTextPreviewScreen({required this.name, required this.content});
 
   @override
+  State<_ArchiveTextPreviewScreen> createState() => _ArchiveTextPreviewScreenState();
+}
+
+class _ArchiveTextPreviewScreenState extends State<_ArchiveTextPreviewScreen> {
+  final _prefsService = PrefsService();
+  int? _highlightSizeLimit; // null until loaded from Settings
+
+  @override
+  void initState() {
+    super.initState();
+    _prefsService.loadPerformancePrefs().then((p) {
+      if (mounted) setState(() => _highlightSizeLimit = p.highlightLimitKb * 1024);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final name = widget.name;
+    final content = widget.content;
+    if (_highlightSizeLimit == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     final lang = EditorLanguageX.fromExtension(name);
-    final tooLargeToHighlight = content.length > _highlightSizeLimit;
+    final tooLargeToHighlight = content.length > _highlightSizeLimit!;
     return Scaffold(
       appBar: AppBar(
         title: Text(name, overflow: TextOverflow.ellipsis),

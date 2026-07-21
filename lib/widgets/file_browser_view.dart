@@ -8,6 +8,7 @@ import '../services/archive_service.dart';
 import '../services/clipboard_controller.dart';
 import '../services/file_service.dart';
 import '../services/prefs_service.dart';
+import '../services/template_service.dart';
 import '../widgets/file_list_tile.dart';
 import '../widgets/file_info_dialog.dart';
 import '../widgets/repo_push_dialog.dart';
@@ -44,6 +45,11 @@ class FileBrowserViewState extends State<FileBrowserView> {
   final _fileService = FileService();
   final _archiveService = ArchiveService();
   final _prefsService = PrefsService();
+  final _templateService = TemplateService();
+
+  // Customizable in Settings — defaults to 100KB, loaded in _bootstrap()
+  // and refreshed by reloadPreferences().
+  int _largeFileWarningBytes = 100 * 1024;
 
   late String _currentPath = widget.rootPath;
   List<FileEntry> _allEntries = [];
@@ -100,6 +106,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
     _showHidden = prefs.showHiddenFiles;
     _confirmBeforeDelete = prefs.confirmBeforeDelete;
 
+    final perfPrefs = await _prefsService.loadPerformancePrefs();
+    _largeFileWarningBytes = perfPrefs.largeFileWarningKb * 1024;
+
     final granted = await _fileService.ensureStoragePermission();
     if (!granted) {
       if (mounted) {
@@ -112,6 +121,7 @@ class FileBrowserViewState extends State<FileBrowserView> {
     }
 
     if (widget.isWorkplaceTab) {
+      await _seedSamplesShortcutIfNeeded();
       await _loadShortcuts();
       if (mounted) {
         setState(() {
@@ -123,6 +133,27 @@ class FileBrowserViewState extends State<FileBrowserView> {
     }
 
     await _loadDirectory(_currentPath);
+  }
+
+  /// Seeds a default "Samples" Workplace shortcut pointing at a real,
+  /// on-disk copy of the bundled templates — once, ever. If the user
+  /// removes it later it stays gone (never re-added); the templates
+  /// themselves stay available regardless via "New File from Template",
+  /// since that reads straight from the app's bundled assets, not this
+  /// copied folder.
+  Future<void> _seedSamplesShortcutIfNeeded() async {
+    if (await _prefsService.hasSeededSamplesShortcut()) return;
+    try {
+      final samplesPath = await _templateService.ensureSamplesFolderOnDisk();
+      final shortcuts = await _prefsService.loadWorkplaceShortcuts();
+      if (!shortcuts.contains(samplesPath)) {
+        shortcuts.add(samplesPath);
+        await _prefsService.saveWorkplaceShortcuts(shortcuts);
+      }
+    } catch (_) {
+      // Non-fatal — templates remain usable via "New File from Template" either way.
+    }
+    await _prefsService.setSeededSamplesShortcut();
   }
 
   /// Reads the pinned shortcut paths and builds display entries for them.
@@ -188,6 +219,43 @@ class FileBrowserViewState extends State<FileBrowserView> {
     }
   }
 
+  /// Renames the actual on-disk folder a Workplace shortcut points at, and
+  /// keeps the pinned shortcut path in sync afterward — unlike the normal
+  /// _renameEntry (built for regular directory browsing), which has no
+  /// concept of a shortcut list to update.
+  Future<void> _renameShortcut(FileEntry entry) async {
+    final controller = TextEditingController(text: entry.name);
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Rename')),
+        ],
+      ),
+    );
+    if (result != true || controller.text.trim().isEmpty) return;
+
+    try {
+      final newPath = await _fileService.rename(entry.path, true, controller.text.trim());
+      final shortcuts = await _prefsService.loadWorkplaceShortcuts();
+      final idx = shortcuts.indexOf(entry.path);
+      if (idx != -1) {
+        shortcuts[idx] = newPath;
+        await _prefsService.saveWorkplaceShortcuts(shortcuts);
+      }
+      await _loadShortcuts();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
+    }
+  }
+
   Future<void> _removeFromWorkplace(String path) async {
     final current = await _prefsService.loadWorkplaceShortcuts();
     current.remove(path);
@@ -199,11 +267,13 @@ class FileBrowserViewState extends State<FileBrowserView> {
   /// user returns from the Settings screen).
   Future<void> reloadPreferences() async {
     final prefs = await _prefsService.loadFileManagerPrefs();
+    final perfPrefs = await _prefsService.loadPerformancePrefs();
     if (!mounted) return;
     setState(() {
       _sortMode = SortMode.values[prefs.defaultSortIndex];
       _showHidden = prefs.showHiddenFiles;
       _confirmBeforeDelete = prefs.confirmBeforeDelete;
+      _largeFileWarningBytes = perfPrefs.largeFileWarningKb * 1024;
     });
     if (!(widget.isWorkplaceTab && _atShortcutsList)) {
       _loadDirectory(_currentPath);
@@ -377,6 +447,14 @@ class FileBrowserViewState extends State<FileBrowserView> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('New File from Template'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _createNewFileFromTemplate();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.create_new_folder_outlined),
               title: const Text('New Folder'),
               onTap: () {
@@ -402,11 +480,8 @@ class FileBrowserViewState extends State<FileBrowserView> {
   // ---------------- Open (smart dispatch by file type) ----------------
 
   static const _imageExtensions = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'};
-  // Files above this size get a "this may take a while" confirmation
-  // before opening in the editor, so a big tap isn't a surprise freeze.
-  static const int _largeFileWarningBytes = 100 * 1024; // 100 KB
 
-  Future<void> _openInEditor(FileEntry entry) async {
+  Future<void> _openInEditor(FileEntry entry, {bool forceReadOnly = false}) async {
     final ext = entry.extension;
 
     if (ext == 'zip') {
@@ -455,7 +530,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
       if (!mounted) return;
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => EditorScreen(filePath: entry.path, initialContent: content)),
+        MaterialPageRoute(
+          builder: (_) => EditorScreen(filePath: entry.path, initialContent: content, readOnly: forceReadOnly),
+        ),
       );
       if (mounted) _loadDirectory(_currentPath);
     } catch (_) {
@@ -557,6 +634,64 @@ class FileBrowserViewState extends State<FileBrowserView> {
         await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => EditorScreen(filePath: newPath, initialContent: '')),
+        );
+        if (mounted) _loadDirectory(_currentPath);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ $e')));
+    }
+  }
+
+  Future<void> _createNewFileFromTemplate() async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            const ListTile(title: Text('Choose a Template', style: TextStyle(fontWeight: FontWeight.bold))),
+            const Divider(height: 1),
+            ...TemplateService.templateFileNames.map(
+              (name) => ListTile(
+                leading: const Icon(Icons.description_outlined),
+                title: Text(name),
+                onTap: () => Navigator.pop(ctx, name),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null) return;
+
+    final controller = TextEditingController(text: chosen);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New File from Template'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'File name', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    final fileName = name.trim();
+
+    try {
+      final content = await _templateService.loadTemplateContent(chosen);
+      await _fileService.createFile(_currentPath, fileName, content: content);
+      await _loadDirectory(_currentPath);
+      final newPath = '$_currentPath/$fileName';
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => EditorScreen(filePath: newPath, initialContent: content)),
         );
         if (mounted) _loadDirectory(_currentPath);
       }
@@ -729,6 +864,12 @@ class FileBrowserViewState extends State<FileBrowserView> {
                 title: const Text('Open in Editor'),
                 onTap: () => Navigator.pop(ctx, 'open'),
               ),
+            if (!entry.isDirectory && entry.extension != 'zip' && !_imageExtensions.contains(entry.extension))
+              ListTile(
+                leading: const Icon(Icons.lock_outline_rounded),
+                title: const Text('Open Read-Only'),
+                onTap: () => Navigator.pop(ctx, 'readonly'),
+              ),
             if (entry.extension == 'zip')
               ListTile(
                 leading: const Icon(Icons.unarchive_rounded),
@@ -781,6 +922,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
         case 'open':
           _openInEditor(entry);
           break;
+        case 'readonly':
+          _openInEditor(entry, forceReadOnly: true);
+          break;
         case 'extract':
           await _extractZip(entry);
           break;
@@ -832,6 +976,12 @@ class FileBrowserViewState extends State<FileBrowserView> {
               onTap: () => Navigator.pop(ctx, 'open'),
             ),
             ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline_rounded),
+              title: const Text('Rename'),
+              subtitle: const Text('Renames the real folder, not just the shortcut'),
+              onTap: () => Navigator.pop(ctx, 'rename'),
+            ),
+            ListTile(
               leading: const Icon(Icons.bookmark_remove_outlined, color: Colors.redAccent),
               title: const Text('Remove from Workplace'),
               subtitle: const Text('Only unpins the shortcut — the real folder stays untouched'),
@@ -844,6 +994,9 @@ class FileBrowserViewState extends State<FileBrowserView> {
       switch (action) {
         case 'open':
           _openShortcut(entry);
+          break;
+        case 'rename':
+          await _renameShortcut(entry);
           break;
         case 'remove':
           await _removeFromWorkplace(entry.path);

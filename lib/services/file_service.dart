@@ -107,10 +107,11 @@ class FileService {
     await file.writeAsString(content, flush: true);
   }
 
-  Future<void> createFile(String dirPath, String fileName) async {
+  Future<void> createFile(String dirPath, String fileName, {String content = ''}) async {
     final file = File('$dirPath/$fileName');
     if (await file.exists()) throw Exception('A file with that name already exists.');
     await file.create(recursive: true);
+    if (content.isNotEmpty) await file.writeAsString(content);
   }
 
   Future<void> createFolder(String dirPath, String folderName) async {
@@ -167,15 +168,17 @@ class FileService {
   }
 
   /// Recursively walks a git-repo folder and reads every trackable file as
-  /// bytes, skipping [ignoredDirNames]. Used to build a GitHub push.
-  Future<List<MapEntry<String, List<int>>>> collectFilesForPush(String rootPath) async {
+  /// bytes, skipping [ignoreDirs] (defaults to [ignoredDirNames], but
+  /// Settings can override this list). Used to build a GitHub push.
+  Future<List<MapEntry<String, List<int>>>> collectFilesForPush(String rootPath, {List<String>? ignoreDirs}) async {
+    final ignore = ignoreDirs ?? ignoredDirNames;
     final result = <MapEntry<String, List<int>>>[];
 
     Future<void> walk(Directory dir, String relBase) async {
       await for (final entity in dir.list(followLinks: false)) {
         final name = entity.path.split('/').last;
         if (entity is Directory) {
-          if (ignoredDirNames.contains(name)) continue;
+          if (ignore.contains(name)) continue;
           await walk(entity, '$relBase$name/');
         } else if (entity is File) {
           try {

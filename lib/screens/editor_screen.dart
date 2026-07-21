@@ -12,11 +12,23 @@ import '../widgets/quick_toolbar.dart';
 /// file in the File Manager (home screen). Push lives at the folder level
 /// only (FAB or long-press a folder in the File Manager) — this screen is
 /// just for editing and saving.
+///
+/// [readOnly] powers "Open Read-Only" from the file's long-press menu: the
+/// Save button and quick toolbar are hidden entirely (the toolbar inserts
+/// text directly into the controller, bypassing TextField's own readOnly
+/// flag, so it has to be hidden rather than just disabled) and the file
+/// can never become dirty.
 class EditorScreen extends StatefulWidget {
   final String filePath;
   final String initialContent;
+  final bool readOnly;
 
-  const EditorScreen({super.key, required this.filePath, required this.initialContent});
+  const EditorScreen({
+    super.key,
+    required this.filePath,
+    required this.initialContent,
+    this.readOnly = false,
+  });
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -28,8 +40,10 @@ class _EditorScreenState extends State<EditorScreen> {
   // thread, and that cost grows fast enough that a large file (500KB+)
   // can freeze the app for minutes and eventually crash it outright. A
   // plain monospace TextField has none of that cost, so big files still
-  // open instantly — just without color-coding.
-  static const int _highlightSizeLimit = 150000; // ~150 KB
+  // open instantly — just without color-coding. Customizable in Settings;
+  // loaded (async) inside _initController, alongside the deferred
+  // CodeController construction below.
+  int _highlightSizeLimit = 150000; // ~150 KB default, overridden from Settings
 
   final _fileService = FileService();
   final _prefsService = PrefsService();
@@ -56,13 +70,16 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _currentLanguage = EditorLanguageX.fromExtension(_fileName);
-    _highlightingDisabled = widget.initialContent.length > _highlightSizeLimit;
     _undoController = UndoHistoryController();
     _loadQuickToolbar();
     WidgetsBinding.instance.addPostFrameCallback((_) => _initController());
   }
 
-  void _initController() {
+  Future<void> _initController() async {
+    final perfPrefs = await _prefsService.loadPerformancePrefs();
+    _highlightSizeLimit = perfPrefs.highlightLimitKb * 1024;
+    _highlightingDisabled = widget.initialContent.length > _highlightSizeLimit;
+
     final controller = CodeController(
       text: widget.initialContent,
       language: _highlightingDisabled ? null : _currentLanguage.mode,
@@ -87,7 +104,7 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   void _markDirty() {
-    if (!_isDirty) setState(() => _isDirty = true);
+    if (!widget.readOnly && !_isDirty) setState(() => _isDirty = true);
   }
 
   @override
@@ -115,6 +132,7 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<void> _save() async {
+    if (widget.readOnly) return;
     final controller = _codeController;
     if (controller == null) return;
     setState(() => _isSaving = true);
@@ -167,6 +185,10 @@ class _EditorScreenState extends State<EditorScreen> {
           title: Row(
             children: [
               Flexible(child: Text(_fileName, overflow: TextOverflow.ellipsis)),
+              if (widget.readOnly) ...[
+                const SizedBox(width: 6),
+                Icon(Icons.lock_outline_rounded, size: 16, color: scheme.onSurfaceVariant),
+              ],
               if (_isDirty) ...[
                 const SizedBox(width: 6),
                 Icon(Icons.circle, size: 8, color: scheme.error),
@@ -174,13 +196,14 @@ class _EditorScreenState extends State<EditorScreen> {
             ],
           ),
           actions: [
-            IconButton(
-              tooltip: 'Save',
-              icon: _isSaving
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.save_rounded),
-              onPressed: (_isSaving || _codeController == null) ? null : _save,
-            ),
+            if (!widget.readOnly)
+              IconButton(
+                tooltip: 'Save',
+                icon: _isSaving
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.save_rounded),
+                onPressed: (_isSaving || _codeController == null) ? null : _save,
+              ),
           ],
         ),
         body: SafeArea(
@@ -218,14 +241,17 @@ class _EditorScreenState extends State<EditorScreen> {
                           currentLanguage: _currentLanguage,
                           onLanguageChanged: _onLanguageChanged,
                           undoController: _undoController,
+                          readOnly: widget.readOnly,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      QuickToolbar(
-                        controller: _codeController!,
-                        undoController: _undoController,
-                        actions: _quickActions,
-                      ),
+                      if (!widget.readOnly) ...[
+                        const SizedBox(height: 8),
+                        QuickToolbar(
+                          controller: _codeController!,
+                          undoController: _undoController,
+                          actions: _quickActions,
+                        ),
+                      ],
                     ],
                   ),
                 ),

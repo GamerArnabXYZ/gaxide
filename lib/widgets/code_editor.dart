@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:code_text_field/code_text_field.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import '../models/editor_language.dart';
 import '../services/prefs_service.dart';
+import '../services/theme_controller.dart';
 
-/// Editor surface: language dropdown header + syntax-highlighted code area.
+/// Editor surface: language dropdown header, Find & Replace bar (toggled
+/// from the header), and the syntax-highlighted code area itself.
 ///
 /// Line numbers are NOT rendered via CodeField's built-in gutter — that
 /// feature has a real bug in this package where multi-digit line numbers
@@ -35,6 +38,11 @@ import '../services/prefs_service.dart';
 /// claim the gesture arena and would break normal single-finger scrolling
 /// and text selection. `Listener` only observes pointer events without
 /// consuming them, so it layers on top of everything else safely.
+///
+/// The editor's code font itself is user-selectable from Settings (must
+/// stay monospace so columns/line numbers align) — read live from
+/// [ThemeController] via an AnimatedBuilder, same pattern as the app's
+/// color theme.
 class CodeEditorView extends StatefulWidget {
   final CodeController controller;
   final EditorLanguage currentLanguage;
@@ -71,14 +79,33 @@ class _CodeEditorViewState extends State<CodeEditorView> {
   double _pinchStartDistance = 0;
   double _pinchStartFontSize = 14;
 
-  TextStyle get _codeStyle => TextStyle(fontFamily: 'monospace', fontSize: _fontSize, height: _lineHeightMultiplier);
-  StrutStyle get _strut =>
-      StrutStyle(fontSize: _fontSize, height: _lineHeightMultiplier, forceStrutHeight: true);
+  // ---- Find & Replace ----
+  bool _showFind = false;
+  final _findController = TextEditingController();
+  final _replaceController = TextEditingController();
+  final _findFocusNode = FocusNode();
+  List<int> _matches = [];
+  int _currentMatch = -1;
+
+  String get _editorFontFamily => GoogleFonts.getFont(ThemeController.instance.editorFont).fontFamily!;
+
+  TextStyle get _codeStyle => GoogleFonts.getFont(
+        ThemeController.instance.editorFont,
+        fontSize: _fontSize,
+        height: _lineHeightMultiplier,
+      );
+  StrutStyle get _strut => StrutStyle(
+        fontFamily: _editorFontFamily,
+        fontSize: _fontSize,
+        height: _lineHeightMultiplier,
+        forceStrutHeight: true,
+      );
 
   @override
   void initState() {
     super.initState();
     _loadFontSize();
+    _findController.addListener(_runSearch);
   }
 
   Future<void> _loadFontSize() async {
@@ -117,15 +144,127 @@ class _CodeEditorViewState extends State<CodeEditorView> {
     }
   }
 
+  void _toggleFind() {
+    setState(() => _showFind = !_showFind);
+    if (_showFind) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _findFocusNode.requestFocus());
+    } else {
+      setState(() {
+        _matches = [];
+        _currentMatch = -1;
+      });
+    }
+  }
+
+  void _runSearch() {
+    final query = _findController.text;
+    if (query.isEmpty) {
+      setState(() {
+        _matches = [];
+        _currentMatch = -1;
+      });
+      return;
+    }
+    final lowerText = widget.controller.text.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+    final matches = <int>[];
+    var start = 0;
+    while (true) {
+      final idx = lowerText.indexOf(lowerQuery, start);
+      if (idx == -1) break;
+      matches.add(idx);
+      start = idx + lowerQuery.length;
+    }
+    setState(() {
+      _matches = matches;
+      _currentMatch = matches.isEmpty ? -1 : 0;
+    });
+    if (matches.isNotEmpty) _selectMatch(0);
+  }
+
+  void _selectMatch(int index) {
+    if (_matches.isEmpty) return;
+    final wrapped = index % _matches.length;
+    final start = _matches[wrapped];
+    final len = _findController.text.length;
+    widget.controller.selection = TextSelection(baseOffset: start, extentOffset: start + len);
+    _scrollToCharOffset(start);
+    setState(() => _currentMatch = wrapped);
+  }
+
+  void _scrollToCharOffset(int charOffset) {
+    if (!_verticalController.hasClients) return;
+    final textBefore = widget.controller.text.substring(0, charOffset);
+    final lineIndex = '\n'.allMatches(textBefore).length;
+    final lineHeight = _fontSize * _lineHeightMultiplier;
+    final target = (lineIndex * lineHeight - 120).clamp(0.0, _verticalController.position.maxScrollExtent);
+    _verticalController.animateTo(target, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+  }
+
+  void _nextMatch() {
+    if (_matches.isEmpty) return;
+    _selectMatch(_currentMatch + 1);
+  }
+
+  void _prevMatch() {
+    if (_matches.isEmpty) return;
+    _selectMatch(_currentMatch - 1 + _matches.length);
+  }
+
+  void _replaceCurrent() {
+    if (_currentMatch == -1 || _matches.isEmpty || widget.readOnly) return;
+    final start = _matches[_currentMatch];
+    final query = _findController.text;
+    final replacement = _replaceController.text;
+    final text = widget.controller.text;
+    final newText = text.replaceRange(start, start + query.length, replacement);
+    widget.controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + replacement.length),
+    );
+    _runSearch();
+  }
+
+  void _replaceAll() {
+    final query = _findController.text;
+    if (query.isEmpty || widget.readOnly) return;
+    final replacement = _replaceController.text;
+    final text = widget.controller.text;
+    final regex = RegExp(RegExp.escape(query), caseSensitive: false);
+    final count = regex.allMatches(text).length;
+    final newText = text.replaceAll(regex, replacement);
+    widget.controller.value = TextEditingValue(text: newText, selection: const TextSelection.collapsed(offset: 0));
+    setState(() {
+      _matches = [];
+      _currentMatch = -1;
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Replaced $count occurrence(s)'), duration: const Duration(seconds: 2)),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _verticalController.dispose();
+    _findController.dispose();
+    _replaceController.dispose();
+    _findFocusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    return AnimatedBuilder(
+      // Rebuilds instantly when the editor font is changed in Settings.
+      animation: ThemeController.instance,
+      builder: (context, _) => _buildBody(scheme),
+    );
+  }
+
+  Widget _buildBody(ColorScheme scheme) {
     return Container(
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
@@ -148,6 +287,12 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                 const SizedBox(width: 8),
                 const Text('Language', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 const Spacer(),
+                IconButton(
+                  tooltip: 'Find & Replace',
+                  icon: Icon(_showFind ? Icons.close_rounded : Icons.search_rounded, size: 20),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _toggleFind,
+                ),
                 DropdownButtonHideUnderline(
                   child: DropdownButton<EditorLanguage>(
                     value: widget.currentLanguage,
@@ -166,6 +311,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
               ],
             ),
           ),
+          if (_showFind) _buildFindReplaceBar(scheme),
           Expanded(
             child: CodeTheme(
               data: CodeThemeData(styles: atomOneDarkTheme),
@@ -194,7 +340,7 @@ class _CodeEditorViewState extends State<CodeEditorView> {
                                   numbers,
                                   textAlign: TextAlign.right,
                                   style: TextStyle(
-                                    fontFamily: 'monospace',
+                                    fontFamily: _editorFontFamily,
                                     fontSize: _fontSize,
                                     height: _lineHeightMultiplier,
                                     color: scheme.onSurfaceVariant.withOpacity(0.5),
@@ -240,6 +386,81 @@ class _CodeEditorViewState extends State<CodeEditorView> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFindReplaceBar(ColorScheme scheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant.withOpacity(0.4))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _findController,
+                  focusNode: _findFocusNode,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: 'Find',
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _nextMatch(),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _matches.isEmpty ? '0/0' : '${_currentMatch + 1}/${_matches.length}',
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              ),
+              IconButton(
+                tooltip: 'Previous',
+                icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                visualDensity: VisualDensity.compact,
+                onPressed: _matches.isEmpty ? null : _prevMatch,
+              ),
+              IconButton(
+                tooltip: 'Next',
+                icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                visualDensity: VisualDensity.compact,
+                onPressed: _matches.isEmpty ? null : _nextMatch,
+              ),
+            ],
+          ),
+          if (!widget.readOnly) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _replaceController,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      hintText: 'Replace',
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                TextButton(
+                  onPressed: _matches.isEmpty ? null : _replaceCurrent,
+                  child: const Text('Replace'),
+                ),
+                TextButton(
+                  onPressed: _findController.text.isEmpty ? null : _replaceAll,
+                  child: const Text('All'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
