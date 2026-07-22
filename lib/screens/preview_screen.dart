@@ -1,34 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:webview_flutter/webview_flutter.dart';
+import '../services/local_preview_server.dart';
 
 /// Live preview for HTML — and, via a small generated wrapper, CSS/JS too
 /// (see EditorScreen's _previewWrapped).
 ///
-/// The critical difference from a naive "show this HTML as a string"
-/// preview (the kind that breaks the moment a page references its own
-/// stylesheet or script): this loads the page through a real `file://`
-/// URL pointing at its ACTUAL location on disk. Because the WebView's
-/// base URL is then that real folder, every relative reference — `<link
-/// href="style.css">`, `<script src="script.js">`, `<img src="...">`,
-/// links to sibling HTML pages — resolves exactly the way it would in a
-/// real browser, against the real files sitting right next to it. That's
-/// the whole fix: nothing needs to be inlined or rewritten.
+/// Serves [folderPath] over a local `http://127.0.0.1` server (see
+/// LocalPreviewServer) instead of loading a `file://` URL directly.
+/// Android WebView increasingly refuses `file://` access to external
+/// storage paths (`net::ERR_ACCESS_DENIED`) regardless of the app's own
+/// storage permission — serving the same folder over plain localhost HTTP
+/// sidesteps that entirely, while every relative `<link>`/`<script>`/
+/// `<img>` reference to a sibling file still resolves exactly the way it
+/// would in a real browser, since the server root IS that real folder.
 ///
 /// Eruda (a mobile-friendly devtools overlay — console, elements,
-/// network, resources) is auto-injected after every page load, giving a
-/// small floating inspector button right on the page — the same
-/// devtools-on-a-phone experience you'd set up manually on a real mobile
-/// site. The actual Eruda bundle (v3.4.3) ships as a local asset — fetched
-/// once at CI build-time (see .github/workflows/android.yml) and read
-/// straight from `assets/eruda.min.js` here, so the inspector works fully
-/// offline on the device; nothing about it needs a network connection at
-/// preview time.
+/// network, resources) is auto-injected after every page load. The
+/// bundle (v3.4.3) ships as a local asset — fetched once at CI build-time
+/// (see .github/workflows/android.yml) — so the inspector works fully
+/// offline; nothing about it needs a network connection at preview time.
 class PreviewScreen extends StatefulWidget {
-  final String fileUrl; // a file:// URL from Uri.file(...)
+  final String folderPath; // directory to serve
+  final String fileName; // file within it to open
   final String title;
 
-  const PreviewScreen({super.key, required this.fileUrl, required this.title});
+  const PreviewScreen({super.key, required this.folderPath, required this.fileName, required this.title});
 
   @override
   State<PreviewScreen> createState() => _PreviewScreenState();
@@ -39,6 +36,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
   // only ever read from the bundle once per screen.
   static String? _erudaSourceCache;
 
+  final _server = LocalPreviewServer();
   late final WebViewController _controller;
   bool _loading = true;
   String? _loadError;
@@ -67,8 +65,22 @@ class _PreviewScreenState extends State<PreviewScreen> {
             }
           },
         ),
-      )
-      ..loadRequest(Uri.parse(widget.fileUrl));
+      );
+    _startAndLoad();
+  }
+
+  Future<void> _startAndLoad() async {
+    try {
+      final baseUrl = await _server.start(widget.folderPath);
+      await _controller.loadRequest(Uri.parse('$baseUrl/${widget.fileName}'));
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = 'Could not start the local preview server:\n$e';
+        });
+      }
+    }
   }
 
   Future<void> _injectEruda() async {
@@ -96,8 +108,17 @@ if ($isDefined && !window.__erudaInited) {
   }
 
   void _reload() {
-    setState(() => _loadError = null);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     _controller.reload();
+  }
+
+  @override
+  void dispose() {
+    _server.stop();
+    super.dispose();
   }
 
   @override

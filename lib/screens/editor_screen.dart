@@ -236,10 +236,11 @@ class _EditorScreenState extends State<EditorScreen> {
       }
     }
     if (!mounted) return;
+    final dir = widget.filePath.substring(0, widget.filePath.lastIndexOf('/'));
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PreviewScreen(fileUrl: Uri.file(widget.filePath).toString(), title: _fileName),
+        builder: (_) => PreviewScreen(folderPath: dir, fileName: _fileName, title: _fileName),
       ),
     );
   }
@@ -271,7 +272,7 @@ class _EditorScreenState extends State<EditorScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PreviewScreen(fileUrl: Uri.file(wrapperPath).toString(), title: _fileName),
+        builder: (_) => PreviewScreen(folderPath: dir, fileName: '.gax_preview_temp.html', title: _fileName),
       ),
     );
 

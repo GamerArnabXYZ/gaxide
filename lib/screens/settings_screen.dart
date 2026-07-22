@@ -30,6 +30,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _ignoreDirsController = TextEditingController();
   final _largeFileWarningController = TextEditingController();
   final _highlightLimitController = TextEditingController();
+  final _codeRunApiKeyController = TextEditingController();
 
   bool _showHidden = false;
   bool _confirmDelete = true;
@@ -67,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ignoreDirsController.text = perfPrefs.ignoreDirs.join(' ');
     _largeFileWarningController.text = perfPrefs.largeFileWarningKb.toString();
     _highlightLimitController.text = perfPrefs.highlightLimitKb.toString();
+    _codeRunApiKeyController.text = perfPrefs.codeRunApiKey;
 
     setState(() {
       _showHidden = fmPrefs.showHiddenFiles;
@@ -90,6 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ignoreDirsController.dispose();
     _largeFileWarningController.dispose();
     _highlightLimitController.dispose();
+    _codeRunApiKeyController.dispose();
     super.dispose();
   }
 
@@ -137,6 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ignoreDirs: ignoreDirs.isEmpty ? FileService.ignoredDirNames : ignoreDirs,
       largeFileWarningKb: largeFileKb < 1 ? 100 : largeFileKb,
       highlightLimitKb: highlightKb < 1 ? 150 : highlightKb,
+      codeRunApiKey: _codeRunApiKeyController.text.trim(),
     ));
   }
 
@@ -361,6 +365,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'opening. Files bigger than the second have syntax highlighting turned off '
                     'automatically so they stay smooth.',
                     style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                  ),
+                  const Divider(height: 28),
+                  Text('Code-Run Service (OnlineCompiler.io)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: scheme.primary)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Python, C++, Java, C#, F#, PHP, Ruby, Haskell, Go, Rust, and TypeScript run '
+                    'via OnlineCompiler.io using a built-in key. If you have your own account, '
+                    'enter its API key here to use it instead.',
+                    style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant.withOpacity(0.8)),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _codeRunApiKeyController,
+                    onChanged: _persistPerformancePrefs,
+                    obscureText: true,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                    decoration: const InputDecoration(
+                      labelText: 'Custom API key (optional)',
+                      hintText: 'Leave blank to use the built-in key',
+                    ),
                   ),
                   const Divider(height: 28),
                   Text('Ignored Folders (GitHub Push)',

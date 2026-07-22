@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android blocks plain HTTP (cleartext) traffic by default since API 28.
+  The in-editor HTML/CSS/JS preview serves files from a tiny local HTTP
+  server on 127.0.0.1 (see LocalPreviewServer) — this never leaves the
+  device, but it's still technically "cleartext" as far as Android's
+  Network Security Config is concerned, so it needs an explicit allowance.
+  Scoped to localhost only — every other host still requires HTTPS.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

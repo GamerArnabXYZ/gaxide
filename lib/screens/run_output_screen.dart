@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/editor_language.dart';
 import '../services/code_runner_service.dart';
+import '../services/prefs_service.dart';
 
 /// Shows stdout/stderr/exit code from running a file through the Piston
 /// execution service — a plain console look (black background) so it
@@ -18,6 +19,7 @@ class RunOutputScreen extends StatefulWidget {
 
 class _RunOutputScreenState extends State<RunOutputScreen> {
   final _runner = CodeRunnerService();
+  final _prefsService = PrefsService();
   bool _running = true;
   String _output = '';
   bool _success = true;
@@ -30,7 +32,8 @@ class _RunOutputScreenState extends State<RunOutputScreen> {
 
   Future<void> _run() async {
     setState(() => _running = true);
-    final result = await _runner.run(widget.language, widget.code, widget.fileName);
+    final apiKey = (await _prefsService.loadPerformancePrefs()).codeRunApiKey;
+    final result = await _runner.run(widget.language, widget.code, widget.fileName, apiKey: apiKey);
     if (!mounted) return;
     setState(() {
       _running = false;

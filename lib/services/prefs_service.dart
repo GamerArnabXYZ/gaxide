@@ -52,10 +52,12 @@ class PerformancePrefs {
   final List<String> ignoreDirs;
   final int largeFileWarningKb;
   final int highlightLimitKb;
+  final String codeRunApiKey;
   const PerformancePrefs({
     this.ignoreDirs = FileService.ignoredDirNames,
     this.largeFileWarningKb = 100,
     this.highlightLimitKb = 150,
+    this.codeRunApiKey = '',
   });
 }
 
@@ -80,6 +82,7 @@ class PrefsService {
   static const _kIgnoreDirs = 'gax_ignore_dirs';
   static const _kLargeFileWarningKb = 'gax_large_file_warning_kb';
   static const _kHighlightLimitKb = 'gax_highlight_limit_kb';
+  static const _kCodeRunApiKey = 'gax_code_run_api_key';
   static const _kSeededSamplesShortcut = 'gax_seeded_samples_shortcut';
 
   Future<void> saveToken(String token) async {
@@ -196,6 +199,7 @@ class PrefsService {
     await prefs.setStringList(_kIgnoreDirs, p.ignoreDirs);
     await prefs.setInt(_kLargeFileWarningKb, p.largeFileWarningKb);
     await prefs.setInt(_kHighlightLimitKb, p.highlightLimitKb);
+    await prefs.setString(_kCodeRunApiKey, p.codeRunApiKey);
   }
 
   Future<PerformancePrefs> loadPerformancePrefs() async {
@@ -204,6 +208,7 @@ class PrefsService {
       ignoreDirs: prefs.getStringList(_kIgnoreDirs) ?? FileService.ignoredDirNames,
       largeFileWarningKb: prefs.getInt(_kLargeFileWarningKb) ?? 100,
       highlightLimitKb: prefs.getInt(_kHighlightLimitKb) ?? 150,
+      codeRunApiKey: prefs.getString(_kCodeRunApiKey) ?? '',
     );
   }
 
