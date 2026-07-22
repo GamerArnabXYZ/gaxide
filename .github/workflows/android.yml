@@ -32,6 +32,9 @@ jobs:
       - name: 📦 Get Dependencies
         run: flutter pub get
 
+      - name: 🐞 Fetch Eruda devtools bundle (pinned v3.4.3)
+        run: curl -sSL -o assets/eruda.min.js https://cdn.jsdelivr.net/npm/eruda@3.4.3/eruda.js
+
       - name: 🔨 Build Android APKs
         run: |
           # Universal APK build aur GAX IDE name standard set karna

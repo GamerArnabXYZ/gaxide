@@ -35,6 +35,12 @@ dependencies:
   # Lets other apps' "Open with" / "Share" menus offer GAX IDE
   receive_sharing_intent: ^1.8.0
 
+  # In-editor Run/Preview: real HTML+CSS+JS rendering (loads from the
+  # file's own folder so relative <link>/<script> references resolve),
+  # and a rendered Markdown preview.
+  webview_flutter: ^4.7.0
+  flutter_markdown: ^0.7.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -44,3 +50,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/samples/
+    - assets/eruda.min.js
