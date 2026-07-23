@@ -227,6 +227,8 @@ class _EditorScreenState extends State<EditorScreen> {
   /// editable) so the preview always reflects the latest edits — the
   /// WebView reads from disk, not from the in-memory editor buffer.
   Future<void> _previewHtml(String content) async {
+    final controller = _codeController;
+    if (controller == null) return;
     if (!widget.readOnly) {
       try {
         await _fileService.saveToPath(widget.filePath, content);
@@ -240,7 +242,17 @@ class _EditorScreenState extends State<EditorScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PreviewScreen(folderPath: dir, fileName: _fileName, title: _fileName),
+        builder: (_) => PreviewScreen(
+          folderPath: dir,
+          fileName: _fileName,
+          liveOverridePath: _fileName,
+          title: _fileName,
+          controller: controller,
+          language: _currentLanguage,
+          onLanguageChanged: _onLanguageChanged,
+          undoController: _undoController,
+          readOnly: widget.readOnly,
+        ),
       ),
     );
   }
@@ -253,6 +265,8 @@ class _EditorScreenState extends State<EditorScreen> {
   /// folder. JS console output is captured and shown on the page since a
   /// WebView has no visible console of its own.
   Future<void> _previewWrapped(String content, {required bool isCss}) async {
+    final controller = _codeController;
+    if (controller == null) return;
     final dir = widget.filePath.substring(0, widget.filePath.lastIndexOf('/'));
     final wrapperPath = '$dir/.gax_preview_temp.html';
     final wrapperHtml = isCss ? _cssWrapperHtml(_fileName) : _jsWrapperHtml(_fileName);
@@ -272,7 +286,17 @@ class _EditorScreenState extends State<EditorScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PreviewScreen(folderPath: dir, fileName: '.gax_preview_temp.html', title: _fileName),
+        builder: (_) => PreviewScreen(
+          folderPath: dir,
+          fileName: '.gax_preview_temp.html',
+          liveOverridePath: _fileName,
+          title: _fileName,
+          controller: controller,
+          language: _currentLanguage,
+          onLanguageChanged: _onLanguageChanged,
+          undoController: _undoController,
+          readOnly: widget.readOnly,
+        ),
       ),
     );
 
